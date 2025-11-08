@@ -1,0 +1,474 @@
+markdown# 코딩 컨벤션
+
+## TypeScript 규칙
+
+### 타입 정의
+
+```typescript
+// ✅ Good: type 사용 (Union 가능)
+type Place = {
+  id: string;
+  name: string;
+  category: PlaceCategory;
+};
+
+type PlaceOrNull = Place | null;
+
+// ❌ Bad: interface는 확장이 필요한 경우만
+interface Place {
+  id: string;
+  name: string;
+}
+```
+
+### 함수 작성
+
+```typescript
+// ✅ Good: 명시적 반환 타입
+function getPlace(id: string): Promise<Place> {
+  return placesApi.getPlaceDetail(id);
+}
+
+// ✅ Good: 화살표 함수 (간단한 경우)
+const formatDistance = (meters: number): string => {
+  return meters >= 1000
+    ? `${(meters / 1000).toFixed(1)}km`
+    : `${meters}m`;
+};
+
+// ❌ Bad: 반환 타입 없음
+function getPlace(id: string) {
+  return placesApi.getPlaceDetail(id);
+}
+```
+
+### any 타입 금지
+
+```typescript
+// ✅ Good: unknown 사용
+function parseJSON(json: string): unknown {
+  return JSON.parse(json);
+}
+
+const data = parseJSON(jsonString);
+if (isPlace(data)) {
+  // Type guard로 타입 좁히기
+  console.log(data.name);
+}
+
+// ❌ Bad: any 사용
+function parseJSON(json: string): any {
+  return JSON.parse(json);
+}
+```
+
+### 옵셔널 체이닝 & Nullish 병합
+
+```typescript
+// ✅ Good
+const distance = place.distance ?? 0;
+const reviews = place.reviews?.length ?? 0;
+
+// ❌ Bad
+const distance = place.distance || 0; // 0이 falsy라서 문제
+const reviews = place.reviews ? place.reviews.length : 0;
+```
+
+## Naming Convention
+
+### 변수/함수
+
+```typescript
+// ✅ camelCase
+const placeList = [];
+const isLoading = false;
+function getPlaceDetail() {}
+
+// ❌ snake_case, PascalCase
+const place_list = [];
+const IsLoading = false;
+function GetPlaceDetail() {}
+```
+
+### 컴포넌트
+
+```typescript
+// ✅ PascalCase
+export function PlaceCard() {}
+export function SearchBar() {}
+
+// ❌ camelCase
+export function placeCard() {}
+```
+
+### 타입/인터페이스
+
+```typescript
+// ✅ PascalCase, Props suffix
+type PlaceCardProps = {
+  place: Place;
+};
+
+type AIRecommendation = {
+  // ...
+};
+
+// ❌ I prefix, T prefix (C# 스타일)
+interface IPlace {}
+type TPlace = {};
+```
+
+### 상수
+
+```typescript
+// ✅ UPPER_SNAKE_CASE
+const MAX_SEARCH_RESULTS = 50;
+const API_BASE_URL = process.env.VITE_API_URL;
+
+export const CACHE_TTL = {
+  PLACE_DETAIL: 3600,
+  PLACE_SEARCH: 300,
+} as const;
+
+// ❌ camelCase
+const maxSearchResults = 50;
+```
+
+### Boolean 변수
+
+```typescript
+// ✅ is, has, should 접두사
+const isLoading = true;
+const hasError = false;
+const shouldFetchMore = true;
+
+// ❌ 동사 없이
+const loading = true;
+const error = false;
+```
+
+## 주석 규칙
+
+### JSDoc
+
+```typescript
+/**
+ * 주변 장소를 검색합니다.
+ *
+ * @param lat - 위도
+ * @param lng - 경도
+ * @param radius - 반경 (미터)
+ * @returns 검색된 장소 목록
+ *
+ * @example
+ * ```ts
+ * const places = await findNearby(37.5665, 126.978, 1000);
+ * console.log(places.length); // 10
+ * ```
+ */
+async function findNearby(
+  lat: number,
+  lng: number,
+  radius: number
+): Promise<Place[]> {
+  // ...
+}
+```
+
+### 인라인 주석
+
+```typescript
+// ✅ Good: 왜(why)를 설명
+// 캐시 키에 쿼리를 포함하여 서로 다른 검색 결과를 구분
+const cacheKey = `places:search:${JSON.stringify(query)}`;
+
+// ❌ Bad: 무엇(what)을 설명 (코드만 봐도 알 수 있음)
+// 변수에 캐시 키를 할당
+const cacheKey = `places:search:${JSON.stringify(query)}`;
+```
+
+### TODO/FIXME
+
+```typescript
+// TODO: 페이지네이션 구현 필요
+// FIXME: 메모리 누수 가능성 확인
+// NOTE: Naver API rate limit 고려
+```
+
+## 에러 처리
+
+### Frontend
+
+```typescript
+// ✅ Good: React Query 에러 처리
+const { data, error, isError } = usePlaces(query);
+
+if (isError) {
+  return (
+    <ErrorMessage
+      message={error.message}
+      onRetry={() => refetch()}
+    />
+  );
+}
+
+// ✅ Good: try-catch (필요한 경우)
+try {
+  const result = await someAsyncOperation();
+  return result;
+} catch (error) {
+  if (error instanceof NetworkError) {
+    toast.error('네트워크 오류가 발생했습니다.');
+  }
+  throw error; // 상위로 전파
+}
+
+// ❌ Bad: 에러 무시
+try {
+  await someAsyncOperation();
+} catch (error) {
+  // 빈 catch 블록
+}
+```
+
+### Backend
+
+```typescript
+// ✅ Good: 명확한 에러와 상태 코드
+@Get(':id')
+async getPlace(@Param('id') id: string): Promise<Place> {
+  const place = await this.placesService.findOne(id);
+
+  if (!place) {
+    throw new NotFoundException(
+      `Place with ID ${id} not found`,
+      'PLACE_NOT_FOUND'
+    );
+  }
+
+  return place;
+}
+
+// ✅ Good: Custom Exception
+export class PlaceNotFoundException extends NotFoundException {
+  constructor(id: string) {
+    super(
+      `Place with ID ${id} not found`,
+      'PLACE_NOT_FOUND'
+    );
+  }
+}
+```
+
+## 비동기 처리
+
+### async/await 우선
+
+```typescript
+// ✅ Good: async/await
+async function fetchPlaces(): Promise<Place[]> {
+  const response = await apiClient.get('/places');
+  return response.data;
+}
+
+// ❌ Bad: Promise chain
+function fetchPlaces(): Promise<Place[]> {
+  return apiClient.get('/places')
+    .then(response => response.data);
+}
+```
+
+### Promise.all 활용
+
+```typescript
+// ✅ Good: 병렬 실행
+const [places, trending] = await Promise.all([
+  placesApi.searchPlaces(query),
+  searchApi.getTrending(),
+]);
+
+// ❌ Bad: 순차 실행
+const places = await placesApi.searchPlaces(query);
+const trending = await searchApi.getTrending();
+```
+
+## Import 정리
+
+### 절대 경로 사용
+
+```typescript
+// ✅ Good: @ 별칭 사용
+import { Button } from '@/components/common';
+import { usePlaces } from '@/features/places/hooks';
+import { Place } from '@wonderland/shared';
+
+// ❌ Bad: 상대 경로 남발
+import { Button } from '../../../components/common';
+```
+
+### 그룹화 및 정렬
+
+```typescript
+// ✅ Good: 그룹별로 정렬
+// 1. React
+import React, { useState, useEffect } from 'react';
+
+// 2. 외부 라이브러리
+import { useQuery } from '@tanstack/react-query';
+import axios from 'axios';
+
+// 3. 내부 절대 경로
+import { Button } from '@/components/common';
+import { usePlaces } from '@/features/places/hooks';
+
+// 4. Shared
+import { Place, PlaceCategory } from '@wonderland/shared';
+
+// 5. 타입 import
+import type { PlaceCardProps } from './types';
+
+// 6. 상대 경로
+import { PlaceCard } from './PlaceCard';
+import styles from './styles.module.css';
+```
+
+## 조건부 렌더링
+
+### Early return
+
+```typescript
+// ✅ Good: Early return
+function PlaceCard({ place }: PlaceCardProps) {
+  if (!place) {
+    return null;
+  }
+
+  if (place.closed) {
+    return null;
+  }
+
+  return (
+    <div>
+      {/* 정상 렌더링 */}
+    </div>
+  );
+}
+
+// ❌ Bad: 중첩 조건문
+function PlaceCard({ place }: PlaceCardProps) {
+  return (
+    <>
+      {place ? (
+        <>
+          {place.closed ? (
+            <div>Closed</div>
+          ) : (
+            <div>
+              {/* 정상 렌더링 */}
+            </div>
+          )}
+        </>
+      ) : (
+        <div>No place</div>
+      )}
+    </>
+  );
+}
+```
+
+## 배열 처리
+
+### map에서 key 사용
+
+```typescript
+// ✅ Good: 고유한 key
+places.map(place => (
+  <PlaceCard key={place.id} place={place} />
+));
+
+// ❌ Bad: index를 key로
+places.map((place, index) => (
+  <PlaceCard key={index} place={place} />
+));
+```
+
+### filter + map 체이닝
+
+```typescript
+// ✅ Good
+const openPlaces = places
+  .filter(place => !place.closed)
+  .map(place => ({
+    ...place,
+    distance: calculateDistance(place.location, userLocation),
+  }));
+
+// ✅ Good: 복잡한 경우 reduce
+const categorizedPlaces = places.reduce((acc, place) => {
+  const category = place.category;
+  if (!acc[category]) {
+    acc[category] = [];
+  }
+  acc[category].push(place);
+  return acc;
+}, {} as Record<PlaceCategory, Place[]>);
+```
+
+## 객체/배열 조작
+
+### Spread 연산자
+
+```typescript
+// ✅ Good
+const updatedPlace = { ...place, rating: 4.5 };
+const newPlaces = [...places, newPlace];
+
+// ❌ Bad: 직접 수정
+place.rating = 4.5;
+places.push(newPlace);
+```
+
+### 구조 분해 할당
+
+```typescript
+// ✅ Good
+const { name, rating, category } = place;
+const [first, second, ...rest] = places;
+
+// ❌ Bad
+const name = place.name;
+const rating = place.rating;
+```
+
+## 코드 길이 제한
+
+- 함수: 최대 50줄
+- 파일: 최대 300줄
+- 한 줄: 최대 100자
+- 함수 파라미터: 최대 4개 (초과 시 객체로)
+
+```typescript
+// ✅ Good: 파라미터가 많으면 객체로
+type SearchOptions = {
+  keyword?: string;
+  category?: PlaceCategory;
+  lat?: number;
+  lng?: number;
+  radius?: number;
+};
+
+function searchPlaces(options: SearchOptions) {
+  // ...
+}
+
+// ❌ Bad: 파라미터 5개 이상
+function searchPlaces(
+  keyword?: string,
+  category?: PlaceCategory,
+  lat?: number,
+  lng?: number,
+  radius?: number
+) {
+  // ...
+}
+```

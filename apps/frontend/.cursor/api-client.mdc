@@ -1,0 +1,70 @@
+markdown# API 클라이언트 규칙
+
+## 기본 설정
+
+- HTTP 클라이언트는 `src/api/client.ts`에서 Axios 인스턴스로 관리
+- Base URL과 타임아웃은 환경변수 기반 설정
+- 요청/응답 인터셉터로 로깅 및 에러 처리 통일
+
+```typescript
+import axios from 'axios';
+
+export const apiClient = axios.create({
+  baseURL: import.meta.env.VITE_API_URL,
+  timeout: 10_000,
+  withCredentials: false,
+});
+
+apiClient.interceptors.request.use((config) => {
+  // TODO: 인증 토큰 주입
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // TODO: 공통 에러 처리
+    return Promise.reject(error);
+  }
+);
+```
+
+## 모듈별 API
+
+- 각 도메인 파일은 `module.api.ts` 명명
+- 함수명은 동사 + 목적어 (`getPlaces`, `createPlace`)
+- 응답 타입은 `@wonderland/shared` 타입 재활용
+
+```typescript
+export const placesApi = {
+  getList(params: PlacesFilterParams) {
+    return apiClient.get<Place[]>('/places', { params });
+  },
+  getDetail(id: string) {
+    return apiClient.get<Place>(`/places/${id}`);
+  },
+};
+```
+
+## 에러 처리
+
+- AxiosError 타입 가드 사용
+- 사용자 친화적 메시지 변환 후 UI에 전달
+
+```typescript
+function toUserMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    if (error.response?.status === 404) {
+      return '대상을 찾을 수 없습니다.';
+    }
+  }
+  return '예상치 못한 오류가 발생했습니다.';
+}
+```
+
+## 체크리스트
+
+- [ ] 모든 요청은 `apiClient` 인스턴스 사용
+- [ ] 응답 타입이 명시되었는가?
+- [ ] 오류 메시지가 표준화되었는가?
+- [ ] 캐시 키가 일관적인가?

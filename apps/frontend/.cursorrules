@@ -1,0 +1,67 @@
+markdown# Frontend Rules (React)
+
+상위 규칙 참조:
+
+- 프로젝트 구조: `../../.cursor/structure.mdc`
+- 코딩 컨벤션: `../../.cursor/conventions.mdc`
+
+## Frontend 상세 규칙
+
+상세 규칙 문서:
+
+- 컴포넌트: `.cursor/components.mdc`
+- Hooks: `.cursor/hooks.mdc`
+- API 클라이언트: `.cursor/api-client.mdc`
+
+## 기술 스택
+
+- React 18 + TypeScript
+- Vite (빌드 툴)
+- TanStack Query (서버 상태)
+- Zustand (클라이언트 상태)
+- Axios (HTTP)
+- Tailwind CSS (스타일)
+
+## 빠른 참조
+
+### 컴포넌트 생성
+
+```typescript
+type ComponentNameProps = {
+  // props 정의
+};
+
+export function ComponentName({}: ComponentNameProps) {
+  // 구현
+}
+```
+
+### 커스텀 훅 생성
+
+```typescript
+export function useCustomHook() {
+  return useQuery({
+    queryKey: ['key'],
+    queryFn: () => apiClient.get('/endpoint'),
+  });
+}
+```
+
+### API 호출 추가
+
+```typescript
+// src/api/module.api.ts
+export const moduleApi = {
+  method: (params: SomeType) => apiClient.method('/endpoint', params),
+};
+```
+
+## 체크리스트
+
+- [ ] 컴포넌트는 단일 책임 원칙
+- [ ] Props 타입 정의
+- [ ] 서버 상태는 React Query
+- [ ] 클라이언트 상태는 Zustand
+- [ ] API 호출은 api/ 폴더에
+- [ ] 재사용 컴포넌트는 components/에
+

@@ -1,0 +1,51 @@
+markdown# Wonderland Project - Root Rules
+
+## 프로젝트 개요
+
+- **이름**: Wonderland
+- **설명**: AI가 안내하는 놀라운 장소 발견 플랫폼
+- **구조**: Monorepo (pnpm + Turborepo)
+- **평가 중점**: RESTful API 설계, AI 활용, 효율화/최적화
+
+## 상세 규칙 문서
+
+각 영역별 상세 규칙은 다음 문서를 참조하세요:
+
+- 프로젝트 구조: `.cursor/structure.mdc`
+- 코딩 컨벤션: `.cursor/conventions.mdc`
+- Git 워크플로우: `.cursor/git-workflow.mdc`
+- 보안 규칙: `.cursor/security.mdc`
+
+## 하위 모듈 규칙
+
+- Frontend: `apps/frontend/.cursorrules`
+- Backend: `apps/backend/.cursorrules`
+- Shared: `packages/shared/.cursorrules`
+
+## 기본 원칙
+
+1. **타입 안정성**: TypeScript strict mode, 명시적 타입 정의
+2. **모듈화**: 기능별 명확한 분리, 높은 응집도/낮은 결합도
+3. **문서화**: JSDoc, Swagger, README 필수
+4. **테스트**: 단위 테스트 + E2E 테스트
+5. **성능**: 캐싱, 쿼리 최적화, 인덱싱
+
+## 금지 사항
+
+- ❌ any 타입 사용
+- ❌ console.log 커밋
+- ❌ 주석 처리된 코드 커밋
+- ❌ magic number
+- ❌ 환경변수 하드코딩
+- ❌ 에러 무시
+
+## 평가 체크리스트
+
+매 PR마다 확인:
+
+- [ ] RESTful API 원칙 준수
+- [ ] API 사용 이유 명확
+- [ ] 효율화/최적화 적용
+- [ ] 코드 재사용성
+- [ ] AI 활용 (해당 시)
+

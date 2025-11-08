@@ -1,0 +1,59 @@
+markdown# DTO 작성 규칙
+
+## 기본 원칙
+
+- 클래스 기반 DTO 사용 (`class-validator`, `class-transformer`)
+- 입력 DTO는 `@ApiProperty`로 Swagger 문서화
+- 응답 DTO는 Entity 노출을 최소화
+
+## 템플릿
+
+```typescript
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+
+export class PlacesQueryDto {
+  @ApiProperty({ required: false, description: '검색 키워드' })
+  @IsOptional()
+  @IsString()
+  keyword?: string;
+
+  @ApiProperty({ required: false, enum: PlaceCategory })
+  @IsOptional()
+  @IsEnum(PlaceCategory)
+  category?: PlaceCategory;
+
+  @ApiProperty({ required: false, default: 1 })
+  @IsOptional()
+  @IsNumber()
+  page?: number = 1;
+}
+```
+
+## 검증 규칙
+
+- `whitelist`, `forbidNonWhitelisted` 옵션 활성화
+- 중첩 DTO는 `@ValidateNested` + `Type(() => NestedDto)`
+- 숫자 파라미터는 `@Type(() => Number)`로 변환
+
+## 응답 DTO 예시
+
+```typescript
+export class PlaceDto {
+  @ApiProperty({ description: '장소 ID' })
+  id!: string;
+
+  @ApiProperty({ description: '장소 이름' })
+  name!: string;
+
+  @ApiProperty({ enum: PlaceCategory })
+  category!: PlaceCategory;
+}
+```
+
+## 체크리스트
+
+- [ ] 모든 필드에 데코레이터 적용
+- [ ] Swagger 문서화 완료
+- [ ] 중첩 DTO 검증 처리
+- [ ] Entity 의존 최소화

@@ -1,0 +1,333 @@
+markdown# Wonderland 프로젝트 구조
+
+## 전체 아키텍처
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Frontend (React)                     │
+│  ┌────────────┐  ┌────────────┐  ┌─────────────────────┐   │
+│  │   Maps     │  │   Search   │  │   AI Recommend      │   │
+│  │  Module    │  │   Module   │  │     Module          │   │
+│  └────────────┘  └────────────┘  └─────────────────────┘   │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ REST API (JSON)
+┌───────────────────────────┴─────────────────────────────────┐
+│                      API Gateway (NestJS)                    │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐   │
+│  │   Places    │  │   Search     │  │   AI Service     │   │
+│  │   Module    │  │   Module     │  │   Module         │   │
+│  └─────────────┘  └──────────────┘  └──────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## 디렉토리 구조
+
+### Frontend (apps/frontend)
+
+```
+src/
+├── features/              # 기능별 모듈 (Feature-Sliced Design)
+│   ├── places/
+│   │   ├── components/   # 장소 관련 컴포넌트
+│   │   ├── hooks/        # 장소 관련 훅
+│   │   ├── types/        # 장소 타입 정의
+│   │   └── index.ts      # Public API
+│   ├── search/
+│   └── ai/
+│
+├── components/           # 공통 컴포넌트 (재사용)
+│   ├── common/          # Button, Input, Card 등
+│   └── map/             # 지도 관련 공통 컴포넌트
+│
+├── api/                 # API 클라이언트
+│   ├── client.ts       # Axios 인스턴스
+│   ├── places.api.ts
+│   ├── search.api.ts
+│   └── ai.api.ts
+│
+├── hooks/              # 공통 훅
+│   ├── useGeolocation.ts
+│   ├── useDebounce.ts
+│   └── useIntersectionObserver.ts
+│
+├── store/              # 전역 상태 (Zustand)
+│   ├── mapStore.ts
+│   └── searchStore.ts
+│
+├── pages/              # 페이지 컴포넌트
+│   ├── MapPage.tsx
+│   └── PlaceDetailPage.tsx
+│
+└── types/              # 전역 타입
+    └── index.ts
+```
+
+**규칙**:
+
+- `features/`: 기능별로 완전히 독립적인 모듈
+- `components/`: 2개 이상의 feature에서 사용하는 컴포넌트만
+- `api/`: 모든 API 호출은 여기서 중앙 관리
+- `hooks/`: 비즈니스 로직이 없는 순수한 유틸리티 훅만
+
+### Backend (apps/backend)
+
+```
+src/
+├── common/                  # 공통 모듈
+│   ├── decorators/
+│   ├── filters/
+│   ├── guards/
+│   ├── interceptors/
+│   ├── pipes/
+│   └── interfaces/
+│
+├── config/                  # 설정
+│   ├── app.config.ts
+│   ├── database.config.ts
+│   ├── redis.config.ts
+│   └── llm.config.ts
+│
+├── modules/                 # 기능별 모듈
+│   ├── places/
+│   │   ├── dto/            # Data Transfer Objects
+│   │   ├── entities/       # TypeORM Entities
+│   │   ├── places.controller.ts
+│   │   ├── places.service.ts
+│   │   ├── places.repository.ts
+│   │   └── places.module.ts
+│   │
+│   ├── search/
+│   ├── ai/
+│   ├── external/           # 외부 API 연동
+│   └── cache/              # 캐싱
+│
+├── database/
+│   ├── migrations/
+│   └── seeds/
+│
+└── utils/
+    └── geo.util.ts
+```
+
+**규칙**:
+
+- `modules/`: 각 모듈은 독립적으로 동작 가능
+- `common/`: 2개 이상의 모듈에서 사용하는 코드만
+- `config/`: 환경변수 기반 설정만 (하드코딩 금지)
+
+### Shared (packages/shared)
+
+```
+src/
+├── types/              # 공통 타입 정의
+│   ├── place.types.ts
+│   ├── search.types.ts
+│   ├── ai.types.ts
+│   └── index.ts
+│
+├── constants/          # 공통 상수
+│   ├── categories.ts
+│   ├── api-routes.ts
+│   └── index.ts
+│
+├── utils/              # 공통 유틸
+│   ├── format.ts
+│   ├── validation.ts
+│   └── index.ts
+│
+└── index.ts            # Entry point
+```
+
+**규칙**:
+
+- FE/BE 모두에서 사용 가능한 코드만
+- 플랫폼 종속적인 코드 금지 (DOM, Node.js API 등)
+- 순수 함수 위주
+
+## 모듈 간 의존성 규칙
+
+### Frontend
+
+```
+pages → features → (components, hooks, api, store)
+                 ↓
+              shared
+```
+
+- ✅ pages가 features를 import
+- ✅ features가 components/hooks를 import
+- ❌ components가 features를 import
+- ❌ hooks가 components를 import
+
+### Backend
+
+```
+modules → (common, config, utils)
+        ↓
+     shared
+```
+
+- ✅ modules가 common을 import
+- ✅ modules가 다른 modules의 Service를 inject
+- ❌ common이 modules를 import
+- ❌ 순환 의존성 금지
+
+## 파일명 규칙
+
+### Frontend
+
+- 컴포넌트: `PascalCase.tsx` (PlaceCard.tsx)
+- 훅: `camelCase.ts` (usePlaces.ts, use 접두사 필수)
+- API: `camelCase.api.ts` (places.api.ts)
+- 타입: `camelCase.types.ts` (place.types.ts)
+- 스토어: `camelCase.ts` (mapStore.ts)
+
+### Backend
+
+- Controller: `kebab-case.controller.ts` (places.controller.ts)
+- Service: `kebab-case.service.ts` (places.service.ts)
+- Repository: `kebab-case.repository.ts` (places.repository.ts)
+- Entity: `kebab-case.entity.ts` (place.entity.ts)
+- DTO: `kebab-case.dto.ts` (search-place.dto.ts)
+- Module: `kebab-case.module.ts` (places.module.ts)
+
+### Shared
+
+- 타입: `kebab-case.types.ts` (place.types.ts)
+- 상수: `kebab-case.ts` (api-routes.ts)
+- 유틸: `kebab-case.ts` (format.ts)
+
+## Import 순서
+
+```typescript
+// 1. 외부 라이브러리
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+// 2. 내부 절대 경로 (@/)
+import { Button } from '@/components/common';
+import { usePlaces } from '@/features/places/hooks';
+
+// 3. Shared 패키지
+import { Place, PlaceCategory } from '@wonderland/shared';
+
+// 4. 상대 경로
+import { PlaceCard } from './PlaceCard';
+import type { PlaceCardProps } from './types';
+```
+
+## 환경변수 관리
+
+### Frontend (.env)
+
+```bash
+VITE_API_URL=http://localhost:3000/api/v1
+VITE_NAVER_MAP_CLIENT_ID=
+```
+
+### Backend (.env)
+
+```bash
+NODE_ENV=development
+PORT=3000
+
+# Database
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=wonderland
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# LLM
+LLM_HOST=http://localhost:11434
+LLM_MODEL=llama3.1:8b
+
+# External APIs
+NAVER_CLIENT_ID=
+NAVER_CLIENT_SECRET=
+```
+
+**규칙**:
+
+- `.env.example` 파일 필수 제공
+- 민감한 정보는 절대 커밋 금지
+- ConfigService를 통해서만 접근
+
+## 데이터 흐름
+
+### Frontend
+
+```
+User Action → Component → Hook → API Client → Backend
+                                      ↓
+                                React Query Cache
+                                      ↓
+                                  Component
+```
+
+### Backend
+
+```
+Request → Controller → Service → Repository → Database
+                          ↓
+                    Cache Service → Redis
+                          ↓
+                    External APIs
+```
+
+## API 라우트 구조
+
+```
+/api/v1
+  ├── /places              # 장소 관리
+  │   ├── GET /
+  │   ├── GET /:id
+  │   ├── GET /nearby
+  │   ├── GET /popular
+  │   ├── POST /
+  │   ├── PATCH /:id
+  │   └── DELETE /:id
+  │
+  ├── /search              # 검색
+  │   ├── GET /
+  │   ├── GET /autocomplete
+  │   ├── GET /trending
+  │   └── GET /history
+  │
+  └── /ai                  # AI 기능
+      ├── POST /recommend
+      ├── POST /recommend/stream
+      ├── POST /summarize
+      ├── POST /compare
+      └── POST /interpret
+```
+
+## 성능 고려사항
+
+### Frontend
+
+- 컴포넌트: React.memo, useMemo, useCallback 적절히 사용
+- 이미지: lazy loading, 최적화된 포맷
+- 번들: code splitting, dynamic import
+- 렌더링: 가상화 (react-window)
+
+### Backend
+
+- 캐싱: Redis 적극 활용 (TTL 전략)
+- DB: 인덱스 최적화, 쿼리 최적화
+- API: Rate limiting, 페이지네이션
+- 연결: Connection pooling
+
+## 확장 포인트
+
+향후 추가 가능한 모듈:
+
+- `modules/users`: 사용자 관리
+- `modules/reviews`: 리뷰 시스템
+- `modules/bookmarks`: 즐겨찾기
+- `modules/notifications`: 알림
+- `modules/analytics`: 분석

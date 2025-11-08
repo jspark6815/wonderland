@@ -1,0 +1,42 @@
+markdown# Git & PR 워크플로우
+
+## 브랜치 전략
+
+- 기본 브랜치: `main`
+- 기능 작업은 `feature/{scope}-{summary}` 형태로 생성 (예: `feature/frontend-map-page`)
+- 긴급 버그는 `hotfix/{issue-id}` 브랜치에서 처리
+
+## 커밋 규칙
+
+- Conventional Commits 형식 사용: `type(scope): summary`
+- 가능한 한 작은 단위로 커밋
+- 하나의 커밋에는 하나의 논리적 변경만 포함
+
+### 주요 타입
+
+- `feat`: 새로운 기능
+- `fix`: 버그 수정
+- `docs`: 문서 변경
+- `refactor`: 리팩터링
+- `test`: 테스트 추가/수정
+- `chore`: 기타 잡일
+
+## Pull Request 절차
+
+1. 최신 `main` 브랜치와 동기화
+2. 테스트와 린터 통과 확인
+3. PR 템플릿 작성 (설명, 체크리스트, 테스트 결과)
+4. 최소 1명 이상의 리뷰어 지정
+5. 리뷰 피드백 반영 후 `Squash & Merge`
+
+## 코드 리뷰 가이드
+
+- 기능 동작 검증
+- 코드 품질 및 컨벤션 준수 확인
+- 테스트 커버리지 확인
+- 보안 및 성능 영향 평가
+
+## CI/CD 연동 (향후)
+
+- PR 생성 시 자동 테스트/빌드
+- main 브랜치 병합 후 자동 배포 파이프라인 예정

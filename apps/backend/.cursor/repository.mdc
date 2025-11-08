@@ -1,0 +1,51 @@
+markdown# Repository 작성 규칙
+
+## 기본 원칙
+
+- 데이터베이스 접근 로직만 포함
+- TypeORM `Repository` 또는 `DataSource` 사용
+- 메서드는 명확한 쿼리 책임 (`findById`, `findNearby`, `updateStatus`)
+
+## 템플릿
+
+```typescript
+@Injectable()
+export class PlacesRepository {
+  constructor(
+    @InjectRepository(PlaceEntity)
+    private readonly repository: Repository<PlaceEntity>,
+  ) {}
+
+  async findById(id: string): Promise<PlaceEntity | null> {
+    return this.repository.findOne({ where: { id } });
+  }
+
+  async findWithFilters(query: PlacesQueryDto): Promise<PlaceEntity[]> {
+    const qb = this.repository.createQueryBuilder('place');
+
+    if (query.category) {
+      qb.andWhere('place.category = :category', { category: query.category });
+    }
+
+    return qb
+      .orderBy('place.rating', 'DESC')
+      .take(query.limit ?? 20)
+      .skip(((query.page ?? 1) - 1) * (query.limit ?? 20))
+      .getMany();
+  }
+}
+```
+
+## 베스트 프랙티스
+
+- 작성된 SQL은 `getSql()`로 검증
+- 대량 업데이트는 QueryBuilder 사용
+- 반복 패턴은 BaseRepository 추출 고려
+- 복잡한 쿼리는 View 또는 Stored Procedure 검토
+
+## 체크리스트
+
+- [ ] N+1 문제가 없는가?
+- [ ] 인덱스 활용을 고려했는가?
+- [ ] DTO가 아닌 Entity를 반환하는가?
+- [ ] 트랜잭션과 연계가 필요한가?
