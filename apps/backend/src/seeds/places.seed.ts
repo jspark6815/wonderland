@@ -243,14 +243,13 @@ export const seedPlaces = async (dataSource: DataSource) => {
     },
   ];
 
-  // location 필드 추가
-  const placesWithLocation = places.map(place => ({
+  const placesWithLocation: Partial<Place>[] = places.map(place => ({
     ...place,
     location: {
       type: 'Point' as const,
       coordinates: [place.longitude, place.latitude],
-    } as any,
-  }));
+    },
+  })) as Partial<Place>[];
 
   // 테이블 존재 확인 및 데이터 삭제
   try {
