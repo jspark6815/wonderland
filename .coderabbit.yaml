@@ -1,0 +1,230 @@
+# CodeRabbit Configuration for Wonderland Project
+# AI가 안내하는 놀라운 장소 발견 플랫폼
+
+# 리뷰 설정
+reviews:
+  # 리뷰 요청 자동 승인
+  request_changes_workflow: false
+  
+  # 고위험 변경사항 강조
+  high_risk_change_prompt: |
+    특히 다음 영역의 변경사항을 주의깊게 검토해주세요:
+    - 데이터베이스 마이그레이션
+    - API 엔드포인트 변경
+    - 보안 관련 코드
+    - 환경 변수 처리
+    - PostGIS 지리공간 쿼리
+    - 네이버 Maps API 통합
+  
+  # 자동 리뷰 트리거
+  auto_review:
+    enabled: true
+    drafts: false  # Draft PR은 리뷰하지 않음
+
+# 언어별 설정
+language_specific:
+  # TypeScript/JavaScript
+  typescript:
+    enable_eslint: true
+    enable_prettier: true
+    strict_mode: true
+    check_types: true
+    
+  # Node.js
+  javascript:
+    enable_eslint: true
+    enable_prettier: true
+    check_dependencies: true
+    
+# 파일 패턴 규칙
+path_instructions:
+  - path: "apps/backend/**"
+    instructions: |
+      백엔드 코드 리뷰 시 다음 사항을 확인하세요:
+      - NestJS 베스트 프랙티스 준수
+      - DTO 유효성 검증 (@IsString, @IsNumber 등)
+      - TypeORM 쿼리 최적화
+      - API 응답 일관성
+      - 에러 핸들링 적절성
+      - Swagger 문서화 완성도
+      
+  - path: "apps/backend/src/modules/ai/**"
+    instructions: |
+      AI 모듈 검토 시 주의사항:
+      - 스트리밍 응답 처리
+      - 프롬프트 엔지니어링 품질
+      - LLM 응답 파싱 에러 처리
+      
+  - path: "apps/backend/src/modules/places/**"
+    instructions: |
+      Places 모듈 검토 시 주의사항:
+      - PostGIS 지리공간 쿼리 성능
+      - 하이브리드 검색 로직 (내부 DB + 외부 API)
+      - Redis 캐싱 전략
+      - 위도/경도 타입 변환 처리
+      
+  - path: "apps/frontend/**"
+    instructions: |
+      프론트엔드 코드 리뷰 시 다음 사항을 확인하세요:
+      - React 훅 규칙 준수
+      - 컴포넌트 재사용성
+      - 상태 관리 (Zustand) 적절성
+      - TailwindCSS 클래스 일관성
+      - 반응형 디자인 구현
+      
+  - path: "apps/frontend/src/components/map/**"
+    instructions: |
+      지도 컴포넌트 검토 시 주의사항:
+      - 네이버 Maps API 동적 로딩
+      - 마커 메모리 누수 방지
+      - 지도 이벤트 리스너 정리
+      - 좌표 타입 변환 (string/number)
+      
+  - path: "docker-compose.yml"
+    instructions: |
+      Docker 설정 검토:
+      - 서비스 간 의존성 올바른지 확인
+      - 헬스체크 설정 적절성
+      - 볼륨 마운트 경로 정확성
+      - 환경 변수 설정
+      
+  - path: "*.sql"
+    instructions: |
+      SQL 파일 검토:
+      - PostGIS 확장 활성화 확인
+      - 인덱스 전략 적절성
+      - 마이그레이션 순서
+      
+# 체크리스트
+review_checklist:
+  - "TypeScript strict mode 활성화 여부"
+  - "API 엔드포인트 RESTful 원칙 준수"
+  - "에러 처리 및 로깅 적절성"
+  - "환경 변수 하드코딩 없음"
+  - "console.log 제거"
+  - "주석 처리된 코드 제거"
+  - "Magic number 사용 금지"
+  - "DTO validation 데코레이터 사용"
+  - "Swagger 문서화 완성도"
+  - "컴포넌트 props 타입 정의"
+  - "React 훅 의존성 배열 정확성"
+  - "메모리 누수 가능성 체크"
+  - "PostGIS 쿼리 최적화"
+  - "캐싱 전략 적절성"
+
+# 보안 체크
+security:
+  check_secrets: true
+  check_dependencies: true
+  patterns_to_flag:
+    - "password"
+    - "secret"
+    - "token"
+    - "api_key"
+    - "private_key"
+    
+# 성능 체크
+performance:
+  # 번들 크기 제한
+  bundle_size_limit: "500KB"
+  
+  # 이미지 최적화
+  check_image_optimization: true
+  
+  # 쿼리 성능
+  flag_n_plus_one: true
+  flag_missing_indexes: true
+
+# PR 라벨 자동 추가
+auto_labels:
+  - path: "apps/backend/**"
+    labels: ["backend", "api"]
+    
+  - path: "apps/frontend/**"
+    labels: ["frontend", "ui"]
+    
+  - path: "apps/backend/src/modules/ai/**"
+    labels: ["ai", "llm"]
+    
+  - path: "apps/backend/src/modules/places/**"
+    labels: ["places", "search"]
+    
+  - path: "docker-compose.yml"
+    labels: ["infrastructure", "docker"]
+    
+  - path: "**/*.sql"
+    labels: ["database", "migration"]
+    
+  - path: "packages/shared/**"
+    labels: ["shared", "types"]
+
+# 커스텀 명령어
+chat_commands:
+  - command: "/improve"
+    description: "코드 개선 제안"
+    
+  - command: "/security"
+    description: "보안 취약점 검토"
+    
+  - command: "/performance"
+    description: "성능 최적화 제안"
+    
+  - command: "/test"
+    description: "테스트 코드 제안"
+
+# 제외 패턴
+ignore_patterns:
+  - "pnpm-lock.yaml"
+  - "*.log"
+  - ".env*"
+  - "dist/**"
+  - "node_modules/**"
+  - ".turbo/**"
+  - "coverage/**"
+
+# 리뷰 스타일
+review_style:
+  tone: "constructive"  # 건설적인 피드백
+  detail_level: "high"   # 상세한 리뷰
+  
+  # 한국어 코멘트 선호
+  language: "korean"
+  
+  # 코드 예시 포함
+  include_code_suggestions: true
+  
+  # 관련 문서 링크 제공
+  include_documentation_links: true
+
+# 통합 설정
+integrations:
+  # GitHub Actions 연동
+  github_actions:
+    run_on_draft: false
+    run_on_push: true
+    
+  # Slack 알림 (옵션)
+  slack:
+    enabled: false
+    
+# 평가 기준 (프로젝트 특화)
+evaluation_criteria:
+  - name: "RESTful API 설계"
+    weight: "high"
+    description: "API 엔드포인트가 RESTful 원칙을 따르는지 확인"
+    
+  - name: "AI/LLM 활용"
+    weight: "high"
+    description: "AI 기능이 적절히 구현되고 활용되는지 확인"
+    
+  - name: "효율화/최적화"
+    weight: "high"
+    description: "코드 효율성, 쿼리 최적화, 캐싱 전략 확인"
+    
+  - name: "타입 안정성"
+    weight: "medium"
+    description: "TypeScript 타입이 명확하게 정의되어 있는지 확인"
+    
+  - name: "코드 재사용성"
+    weight: "medium"
+    description: "컴포넌트와 함수의 재사용 가능성 확인"
