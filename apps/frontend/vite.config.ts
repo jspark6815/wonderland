@@ -10,8 +10,12 @@ export default defineConfig({
       '@wonderland/shared': path.resolve(__dirname, '../../packages/shared/src'),
     },
   },
+  css: {
+    postcss: './postcss.config.cjs',
+  },
   server: {
     port: 5173,
+    host: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
