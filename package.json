@@ -8,14 +8,18 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev",
-    "dev:frontend": "turbo run dev --filter=frontend",
-    "dev:backend": "turbo run dev --filter=backend",
+    "dev": "TURBO_TELEMETRY_DISABLED=1 turbo run dev --no-daemon",
+    "dev:frontend": "TURBO_TELEMETRY_DISABLED=1 turbo run dev --filter=frontend --no-daemon",
+    "dev:backend": "TURBO_TELEMETRY_DISABLED=1 turbo run dev --filter=backend --no-daemon",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "clean": "turbo run clean && rm -rf node_modules",
     "docker:dev": "docker-compose up -d",
+    "docker:logs": "docker-compose logs -f",
+    "docker:restart": "docker-compose restart",
+    "docker:down": "docker-compose down",
+    "docker:clean": "docker-compose down -v",
     "docker:prod": "docker-compose -f docker-compose.prod.yml up -d",
     "setup": "pnpm install && pnpm run docker:dev"
   },

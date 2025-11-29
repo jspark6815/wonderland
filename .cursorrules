@@ -15,6 +15,7 @@ markdown# Wonderland Project - Root Rules
 - 코딩 컨벤션: `.cursor/conventions.mdc`
 - Git 워크플로우: `.cursor/git-workflow.mdc`
 - 보안 규칙: `.cursor/security.mdc`
+- Docker 개발 환경: `.cursor/docker-dev.mdc`
 
 ## 하위 모듈 규칙
 
