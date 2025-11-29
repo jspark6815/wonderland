@@ -16,6 +16,9 @@ async function bootstrap(): Promise<void> {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
     }),
   );
 
@@ -23,9 +26,9 @@ async function bootstrap(): Promise<void> {
     .setTitle('Wonderland API')
     .setDescription('AI가 안내하는 놀라운 장소 발견 플랫폼 API')
     .setVersion('1.0')
-    .addTag('places', '장소 관리')
-    .addTag('search', '검색')
+    .addTag('places', '장소 관리 및 검색')
     .addTag('ai', 'AI 기능')
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
