@@ -1,5 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "remoteCache": {
+    "enabled": false
+  },
   "pipeline": {
     "build": {
       "dependsOn": ["^build"],

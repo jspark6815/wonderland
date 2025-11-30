@@ -1,0 +1,257 @@
+markdown# Docker 기반 개발 환경 가이드
+
+## 개요
+Wonderland 프로젝트는 Docker Compose를 기반으로 모든 서비스를 컨테이너화하여 개발합니다.
+
+## 서비스 구성
+
+### 인프라 서비스
+- **PostgreSQL** (postgis/postgis:15-3.3) - 메인 데이터베이스
+- **Redis** (redis:7-alpine) - 캐싱 및 세션 관리
+- **Ollama** (ollama/ollama:latest) - LLM 서비스 (llama3.2:3b)
+
+### 애플리케이션 서비스
+- **Frontend** - React + Vite 개발 서버 (포트 5173)
+- **Backend** - NestJS 개발 서버 (포트 3000)
+
+## Docker 명령어 모음
+
+### 기본 명령어
+```bash
+# 모든 서비스 시작
+pnpm run docker:dev
+
+# 서비스 로그 확인
+pnpm run docker:logs
+
+# 특정 서비스 로그 확인
+docker-compose logs -f [service_name]
+
+# 서비스 재시작
+pnpm run docker:restart
+
+# 특정 서비스 재시작
+docker-compose restart [service_name]
+
+# 모든 서비스 중지
+pnpm run docker:down
+
+# 모든 서비스 및 볼륨 삭제
+pnpm run docker:clean
+```
+
+### 개발 중 자주 사용하는 명령어
+
+#### Frontend 개발
+```bash
+# Frontend 컨테이너 접속
+docker exec -it wonderland-frontend sh
+
+# Frontend 로그 확인
+docker-compose logs -f frontend
+
+# Frontend 재시작
+docker-compose restart frontend
+
+# Frontend 빌드 확인
+docker exec wonderland-frontend npm run build
+```
+
+#### Backend 개발
+```bash
+# Backend 컨테이너 접속
+docker exec -it wonderland-backend sh
+
+# Backend 로그 확인
+docker-compose logs -f backend
+
+# Backend 재시작
+docker-compose restart backend
+
+# TypeORM 마이그레이션 실행
+docker exec wonderland-backend npm run migration:run
+```
+
+#### 데이터베이스 작업
+```bash
+# PostgreSQL 접속
+docker exec -it wonderland-postgres psql -U postgres -d wonderland
+
+# 데이터베이스 백업
+docker exec wonderland-postgres pg_dump -U postgres wonderland > backup.sql
+
+# 데이터베이스 복원
+docker exec -i wonderland-postgres psql -U postgres wonderland < backup.sql
+```
+
+#### Redis 작업
+```bash
+# Redis CLI 접속
+docker exec -it wonderland-redis redis-cli
+
+# Redis 모니터링
+docker exec -it wonderland-redis redis-cli monitor
+
+# Redis 플러시
+docker exec wonderland-redis redis-cli FLUSHALL
+```
+
+#### Ollama LLM 작업
+```bash
+# Ollama 모델 목록 확인
+docker exec wonderland-ollama ollama list
+
+# 새 모델 다운로드
+docker exec wonderland-ollama ollama pull [model_name]
+
+# 모델 삭제
+docker exec wonderland-ollama ollama rm [model_name]
+
+# 현재 모델 테스트
+docker exec wonderland-ollama ollama run llama3.2:3b "Hello"
+```
+
+## 개발 워크플로우
+
+### 1. 초기 설정
+```bash
+# 프로젝트 클론
+git clone <repository>
+cd wonderland
+
+# 의존성 설치 및 Docker 서비스 시작
+pnpm run setup
+```
+
+### 2. 일반 개발
+```bash
+# Docker 서비스 시작
+pnpm run docker:dev
+
+# Frontend 개발 (로컬)
+pnpm run dev:frontend
+
+# Backend 개발 (로컬)
+pnpm run dev:backend
+
+# 또는 모두 실행
+pnpm run dev
+```
+
+### 3. 디버깅
+```bash
+# 전체 로그 확인
+pnpm run docker:logs
+
+# 서비스 상태 확인
+docker-compose ps
+
+# 네트워크 확인
+docker network ls
+docker network inspect wonderland_wonderland-network
+
+# 볼륨 확인
+docker volume ls
+```
+
+### 4. 문제 해결
+
+#### 포트 충돌
+```bash
+# 사용 중인 포트 확인
+lsof -i :5173  # Frontend
+lsof -i :3000  # Backend
+lsof -i :5432  # PostgreSQL
+lsof -i :6379  # Redis
+lsof -i :11434 # Ollama
+
+# 프로세스 종료
+kill -9 [PID]
+```
+
+#### 컨테이너 재빌드
+```bash
+# 캐시 없이 재빌드
+docker-compose build --no-cache
+
+# 특정 서비스만 재빌드
+docker-compose build --no-cache [service_name]
+```
+
+#### 초기화
+```bash
+# 모든 컨테이너, 네트워크, 볼륨 삭제
+pnpm run docker:clean
+
+# Docker 시스템 정리
+docker system prune -a --volumes
+```
+
+## 환경 변수 설정
+
+### Frontend (.env)
+```bash
+VITE_API_URL=http://localhost:3000/api/v1
+VITE_NAVER_MAP_CLIENT_ID=your_client_id
+```
+
+### Backend (.env)
+```bash
+NODE_ENV=development
+PORT=3000
+
+# Database
+DATABASE_HOST=localhost  # Docker: postgres
+DATABASE_PORT=5432
+DATABASE_NAME=wonderland
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+
+# Redis
+REDIS_HOST=localhost  # Docker: redis
+REDIS_PORT=6379
+
+# LLM
+LLM_HOST=http://localhost:11434  # Docker: http://ollama:11434
+LLM_MODEL=llama3.2:3b
+```
+
+## Hot Module Replacement (HMR)
+
+### Frontend HMR
+Frontend는 Vite를 사용하여 자동으로 HMR이 활성화됩니다.
+- 파일 저장 시 즉시 브라우저에 반영
+- React Fast Refresh 지원
+
+### Backend Watch Mode
+Backend는 NestJS의 watch 모드를 사용합니다.
+- 파일 변경 시 자동 재시작
+- TypeORM 엔티티 변경 시 자동 동기화 (개발 환경)
+
+## 성능 최적화 팁
+
+1. **Docker Desktop 리소스 설정**
+   - Memory: 최소 8GB 권장
+   - CPUs: 4개 이상 권장
+
+2. **볼륨 마운트 최적화**
+   - node_modules는 컨테이너 내부 볼륨 사용
+   - 소스 코드만 호스트와 동기화
+
+3. **캐싱 활용**
+   - Docker 빌드 캐시 활용
+   - pnpm 캐시 활용
+
+## 주의사항
+
+1. **데이터 영속성**
+   - PostgreSQL, Redis, Ollama 데이터는 Docker 볼륨에 저장
+   - `docker-compose down -v` 실행 시 모든 데이터 삭제
+
+2. **네트워크**
+   - 모든 서비스는 `wonderland-network`로 연결
+   - 서비스 간 통신은 서비스명 사용 (예: `http://backend:3000`)
+
+3. **보안**
+   - 프로덕션 환경에서는 환경 변수 암호화 필수
+   - 개발 환경에서도 민감한 정보는 .env 파일로 관리

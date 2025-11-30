@@ -23,12 +23,13 @@ pnpm install
 # 3. 환경변수 설정
 cp .env.example .env
 # .env 파일을 열어서 필요한 값들을 입력하세요
+# 네이버 지도 API 키는 https://console.ncloud.com/naver-service/application 에서 발급
 
 # 4. Docker 컨테이너 실행
 pnpm run docker:dev
 
 # 5. Ollama 모델 다운로드
-docker exec -it wonderland-ollama ollama pull llama3.1:8b
+docker exec -it wonderland-ollama ollama pull llama3.2:3b
 
 # 6. 개발 서버 실행
 pnpm run dev
@@ -74,7 +75,7 @@ pnpm run dev:backend
 - TypeORM
 - PostgreSQL + PostGIS
 - Redis
-- Ollama (Llama 3.1)
+- Ollama (Llama 3.2:3b)
 - Swagger
 
 ## 📁 프로젝트 구조
