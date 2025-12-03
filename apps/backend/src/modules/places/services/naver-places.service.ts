@@ -45,7 +45,156 @@ export class NaverPlacesService {
   }
 
   /**
+   * 위치 기반 장소 검색
+   * 네이버 API는 위치 기반 검색을 직접 지원하지 않으므로
+   * 일반적인 키워드로 검색 후 거리로 필터링
+   */
+  async searchPlacesByLocation(
+    lat: number,
+    lng: number,
+    radius: number = 1000,
+    display: number = 20
+  ): Promise<any[]> {
+    try {
+      this.logger.debug(`Searching places near ${lat}, ${lng} within ${radius}m`);
+      
+      // 일반적인 장소 카테고리로 검색
+      const searchQueries = ['음식점', '카페', '편의점', '병원', '마트'];
+      const allResults: any[] = [];
+      
+      for (const query of searchQueries) {
+        try {
+          const results = await this.searchPlaces(query, 10);
+          
+          // 거리 계산 및 필터링
+          const filteredResults = results
+            .map((place: any) => ({
+              ...place,
+              distance: this.calculateDistance(lat, lng, place.latitude, place.longitude),
+            }))
+            .filter((place: any) => place.distance <= radius);
+          
+          allResults.push(...filteredResults);
+        } catch (e) {
+          this.logger.warn(`Search for "${query}" failed:`, e);
+        }
+      }
+      
+      // 중복 제거 및 거리순 정렬
+      const uniqueResults = this.removeDuplicates(allResults);
+      return uniqueResults
+        .sort((a: any, b: any) => a.distance - b.distance)
+        .slice(0, display);
+        
+    } catch (error) {
+      this.logger.error('Naver API location search failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 중복 장소 제거
+   */
+  private removeDuplicates(places: any[]): any[] {
+    const seen = new Set<string>();
+    return places.filter(place => {
+      const key = `${place.latitude}_${place.longitude}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /**
+   * 장소 상세 정보 검색 (이름과 좌표 기반)
+   * 네이버 API는 별도 상세 API가 없으므로 검색 API로 상세 정보 획득
+   */
+  async getPlaceDetailByNameAndLocation(
+    name: string,
+    latitude: number,
+    longitude: number
+  ): Promise<any> {
+    try {
+      // 장소명으로 검색
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.baseUrl}/local.json`, {
+          params: {
+            query: name,
+            display: 5,
+            sort: 'comment',
+          },
+          headers: {
+            'X-Naver-Client-Id': this.clientId,
+            'X-Naver-Client-Secret': this.clientSecret,
+          },
+        })
+      );
+
+      if (!response.data.items || response.data.items.length === 0) {
+        return null;
+      }
+
+      // 좌표가 가장 가까운 결과 찾기
+      const items = response.data.items.map((item: any) => ({
+        ...item,
+        distance: this.calculateDistance(
+          latitude,
+          longitude,
+          this.convertMapy(item.mapy),
+          this.convertMapx(item.mapx)
+        ),
+      }));
+
+      // 가장 가까운 결과 반환 (500m 이내)
+      const closest = items
+        .filter((item: any) => item.distance < 500)
+        .sort((a: any, b: any) => a.distance - b.distance)[0];
+
+      if (!closest) {
+        return null;
+      }
+
+      return this.transformNaverResults([closest])[0];
+    } catch (error) {
+      this.logger.error('Naver API detail search failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 두 좌표 간 거리 계산 (미터)
+   */
+  private calculateDistance(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number
+  ): number {
+    const R = 6371000; // 지구 반지름 (미터)
+    const dLat = this.toRad(lat2 - lat1);
+    const dLng = this.toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRad(lat1)) *
+        Math.cos(this.toRad(lat2)) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  /**
+   * 각도를 라디안으로 변환
+   */
+  private toRad(degrees: number): number {
+    return (degrees * Math.PI) / 180;
+  }
+
+  /**
    * 장소 상세 정보 (네이버는 별도 상세 API 없음)
+   * @deprecated 나중에 삭제 예정
    */
   async getPlaceDetail(id: string): Promise<any> {
     // 네이버 API는 상세 정보 엔드포인트가 없으므로

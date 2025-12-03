@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
-import { AiService } from './ai.service';
+import { AiService, InterpretedQuery } from './ai.service';
 import { RecommendPlaceDto } from './dto/recommend-place.dto';
 import { SummarizeReviewsDto } from './dto/summarize-reviews.dto';
 import { InterpretQueryDto } from './dto/interpret-query.dto';
@@ -60,7 +60,7 @@ export class AiController {
   @Post('interpret')
   @ApiOperation({ summary: '자연어 쿼리 해석' })
   @ApiResponse({ status: HttpStatus.OK, description: '해석 성공' })
-  async interpretQuery(@Body() dto: InterpretQueryDto) {
+  async interpretQuery(@Body() dto: InterpretQueryDto): Promise<InterpretedQuery> {
     return this.aiService.interpretQuery(dto);
   }
 
@@ -76,10 +76,22 @@ export class AiController {
   @ApiOperation({ summary: 'AI 서비스 상태 확인' })
   @ApiResponse({ status: HttpStatus.OK, description: '정상 작동 중' })
   async checkHealth() {
-    return {
-      status: 'ok',
-      model: 'llama3.2:3b',
-      timestamp: new Date().toISOString(),
-    };
+    try {
+      const modelStatus = await this.aiService.checkModelStatus();
+      return {
+        status: modelStatus ? 'ok' : 'warning',
+        model: 'llama3.2:3b',
+        modelAvailable: modelStatus,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        model: 'llama3.2:3b',
+        modelAvailable: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      };
+    }
   }
 }

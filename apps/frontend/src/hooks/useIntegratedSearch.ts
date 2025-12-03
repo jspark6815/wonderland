@@ -13,6 +13,13 @@ interface IntegratedSearchResult {
   isFromAI: boolean;
 }
 
+interface SearchOptions {
+  category?: string | null;
+  lat?: number;
+  lng?: number;
+  radius?: number;
+}
+
 export const useIntegratedSearch = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +31,10 @@ export const useIntegratedSearch = () => {
   /**
    * 통합 검색: AI 해석 + 장소 검색
    */
-  const search = useCallback(async (query: string): Promise<IntegratedSearchResult> => {
+  const search = useCallback(async (
+    query: string, 
+    options?: SearchOptions
+  ): Promise<IntegratedSearchResult> => {
     setIsLoading(true);
     setError(null);
 
@@ -35,8 +45,9 @@ export const useIntegratedSearch = () => {
       
       try {
         const aiResult = await aiSearchAPI(query);
-        if (aiResult.searchQuery) {
-          searchKeywords = aiResult.searchQuery;
+        // AI 해석 결과가 있으면 사용
+        if (aiResult && (aiResult.keywords || aiResult.categories || aiResult.location)) {
+          searchKeywords = aiResult.searchQuery || query;
           aiInterpretation = {
             keywords: aiResult.keywords || [],
             categories: aiResult.categories || [],
@@ -47,8 +58,21 @@ export const useIntegratedSearch = () => {
         console.log('AI 해석 실패, 일반 검색으로 진행:', aiError);
       }
 
-      // 2. 장소 검색
-      const places = await searchPlacesAPI(searchKeywords);
+      // 2. 장소 검색 (카테고리 + 위치 필터 적용)
+      const filters: Record<string, unknown> = {};
+      
+      if (options?.category) {
+        filters.category = options.category;
+      }
+      
+      // 위치 기반 검색 (현재 지도 중심 기준)
+      if (options?.lat && options?.lng) {
+        filters.lat = options.lat;
+        filters.lng = options.lng;
+        filters.radius = options.radius || 5000; // 기본 5km 반경
+      }
+      
+      const places = await searchPlacesAPI(searchKeywords, Object.keys(filters).length > 0 ? filters : undefined);
       
       const result: IntegratedSearchResult = {
         places,
