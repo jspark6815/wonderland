@@ -162,6 +162,12 @@ export const NaverMap: React.FC<NaverMapProps> = ({
           setZoom(map.getZoom());
         });
 
+        // 지도 이동/줌 완료 후 bounds 변경 감지 (idle 이벤트)
+        // idle: 지도의 이동이 완료되고 렌더링이 끝났을 때 발생
+        window.naver.maps.Event.addListener(map, 'idle', () => {
+          handleBoundsChange();
+        });
+
         if (isMounted) {
           setIsMapLoaded(true);
           

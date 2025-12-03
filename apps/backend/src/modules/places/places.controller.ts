@@ -68,17 +68,8 @@ export class PlacesController {
     return this.placesService.getPopularPlaces(limit);
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: '장소 상세 정보 (ID로 조회)' })
-  @ApiResponse({
-    status: 200,
-    description: '장소 상세 정보',
-    type: Place,
-  })
-  async getPlaceDetail(@Param('id') id: string): Promise<Place> {
-    return this.placesService.getPlaceDetail(id);
-  }
-
+  // 주의: 'detail/by-location'은 ':id' 보다 먼저 정의되어야 함
+  // NestJS는 라우트를 순서대로 매칭하므로, 구체적인 경로가 먼저 와야 함
   @Get('detail/by-location')
   @ApiOperation({ summary: '장소 상세 정보 (이름과 좌표로 조회)' })
   @ApiResponse({
@@ -92,6 +83,17 @@ export class PlacesController {
     @Query('lng') lng: number,
   ): Promise<Place> {
     return this.placesService.getPlaceDetailByNameAndLocation(name, lat, lng);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: '장소 상세 정보 (ID로 조회)' })
+  @ApiResponse({
+    status: 200,
+    description: '장소 상세 정보',
+    type: Place,
+  })
+  async getPlaceDetail(@Param('id') id: string): Promise<Place> {
+    return this.placesService.getPlaceDetail(id);
   }
 
   @Post()

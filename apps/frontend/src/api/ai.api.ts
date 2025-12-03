@@ -85,8 +85,9 @@ export const aiComparePlacesAPI = async (places: any[]): Promise<string> => {
  */
 export const aiHealthCheckAPI = async (): Promise<boolean> => {
   try {
-    const response = await apiClient.get<{ status: string }>('/ai/health');
-    return response.status === 'healthy';
+    const response = await apiClient.get<{ status: string; modelAvailable: boolean }>('/ai/health');
+    // 백엔드는 'ok', 'warning', 'error' 상태를 반환
+    return response.status === 'ok' || response.status === 'warning';
   } catch {
     return false;
   }
