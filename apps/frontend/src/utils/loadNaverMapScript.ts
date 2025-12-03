@@ -38,7 +38,7 @@ export const loadNaverMapScript = (
     // 환경변수에서 키 가져오기 (새 형식 우선)
     const keyId = options.keyId || import.meta.env.VITE_NAVER_MAP_KEY_ID;
     const clientId = options.clientId || import.meta.env.VITE_NAVER_MAP_CLIENT_ID;
-    const submodules = options.submodules?.join(',') || 'geocoder';
+    const submodules = options.submodules?.join(',') || 'geocoder,services';
 
     if (!keyId && !clientId) {
       reject(new Error('네이버 지도 API 키가 설정되지 않았습니다.'));

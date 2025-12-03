@@ -35,8 +35,9 @@ export const useIntegratedSearch = () => {
       
       try {
         const aiResult = await aiSearchAPI(query);
-        if (aiResult.searchQuery) {
-          searchKeywords = aiResult.searchQuery;
+        // AI 해석 결과가 있으면 사용
+        if (aiResult && (aiResult.keywords || aiResult.categories || aiResult.location)) {
+          searchKeywords = aiResult.searchQuery || query;
           aiInterpretation = {
             keywords: aiResult.keywords || [],
             categories: aiResult.categories || [],

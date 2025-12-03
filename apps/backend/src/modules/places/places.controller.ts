@@ -14,6 +14,7 @@ import { PlacesService } from './places.service';
 import { SearchPlacesDto } from './dto/search-places.dto';
 import { CreatePlaceDto } from './dto/create-place.dto';
 import { NearbySearchDto } from './dto/nearby-search.dto';
+import { BoundsSearchDto } from './dto/bounds-search.dto';
 import { Place } from '../../entities/place.entity';
 
 @ApiTags('places')
@@ -43,6 +44,17 @@ export class PlacesController {
     return this.placesService.searchNearby(nearbyDto);
   }
 
+  @Get('bounds')
+  @ApiOperation({ summary: '지도 영역 기반 장소 검색' })
+  @ApiResponse({
+    status: 200,
+    description: '지도 영역 내 장소 목록',
+    type: [Place],
+  })
+  async searchByBounds(@Query() boundsDto: BoundsSearchDto): Promise<Place[]> {
+    return this.placesService.searchByBounds(boundsDto);
+  }
+
   @Get('popular')
   @ApiOperation({ summary: '인기 장소 조회' })
   @ApiResponse({
@@ -57,7 +69,7 @@ export class PlacesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: '장소 상세 정보' })
+  @ApiOperation({ summary: '장소 상세 정보 (ID로 조회)' })
   @ApiResponse({
     status: 200,
     description: '장소 상세 정보',
@@ -65,6 +77,21 @@ export class PlacesController {
   })
   async getPlaceDetail(@Param('id') id: string): Promise<Place> {
     return this.placesService.getPlaceDetail(id);
+  }
+
+  @Get('detail/by-location')
+  @ApiOperation({ summary: '장소 상세 정보 (이름과 좌표로 조회)' })
+  @ApiResponse({
+    status: 200,
+    description: '장소 상세 정보',
+    type: Place,
+  })
+  async getPlaceDetailByLocation(
+    @Query('name') name: string,
+    @Query('lat') lat: number,
+    @Query('lng') lng: number,
+  ): Promise<Place> {
+    return this.placesService.getPlaceDetailByNameAndLocation(name, lat, lng);
   }
 
   @Post()

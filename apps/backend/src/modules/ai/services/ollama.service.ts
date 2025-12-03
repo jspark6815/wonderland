@@ -27,6 +27,8 @@ export class OllamaService {
    */
   async generate(prompt: string): Promise<any> {
     try {
+      this.logger.debug(`Generating with model: ${this.model}, URL: ${this.ollamaUrl}`);
+      
       const response = await firstValueFrom(
         this.httpService.post(`${this.ollamaUrl}/api/generate`, {
           model: this.model,
@@ -35,14 +37,24 @@ export class OllamaService {
           max_tokens: this.maxTokens,
           stream: false,
         }, {
-          timeout: 15000, // 15초 타임아웃
+          timeout: 30000, // 30초 타임아웃 (AI 응답은 시간이 걸릴 수 있음)
         }),
       );
 
+      if (!response.data || !response.data.response) {
+        this.logger.warn('Ollama response missing response field:', response.data);
+        throw new Error('AI 응답 형식이 올바르지 않습니다.');
+      }
+
       return response.data;
-    } catch (error) {
-      this.logger.error('Ollama generation failed:', error);
-      throw new Error('AI 생성에 실패했습니다.');
+    } catch (error: any) {
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        this.logger.error(`Ollama connection failed. URL: ${this.ollamaUrl}, Error: ${error.message}`);
+        throw new Error(`AI 서비스에 연결할 수 없습니다. Ollama가 실행 중인지 확인해주세요.`);
+      }
+      
+      this.logger.error('Ollama generation failed:', error.message || error);
+      throw new Error(`AI 생성에 실패했습니다: ${error.message || '알 수 없는 오류'}`);
     }
   }
 
@@ -92,13 +104,21 @@ export class OllamaService {
   async checkModelStatus(): Promise<boolean> {
     try {
       const response = await firstValueFrom(
-        this.httpService.get(`${this.ollamaUrl}/api/tags`),
+        this.httpService.get(`${this.ollamaUrl}/api/tags`, {
+          timeout: 5000,
+        }),
       );
       
       const models = response.data.models || [];
-      return models.some((m: any) => m.name === this.model);
-    } catch (error) {
-      this.logger.error('Model status check failed:', error);
+      const modelExists = models.some((m: any) => m.name === this.model);
+      
+      if (!modelExists) {
+        this.logger.warn(`Model ${this.model} not found. Available models: ${models.map((m: any) => m.name).join(', ')}`);
+      }
+      
+      return modelExists;
+    } catch (error: any) {
+      this.logger.error(`Model status check failed. URL: ${this.ollamaUrl}, Error: ${error.message}`);
       return false;
     }
   }

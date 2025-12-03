@@ -76,10 +76,22 @@ export class AiController {
   @ApiOperation({ summary: 'AI 서비스 상태 확인' })
   @ApiResponse({ status: HttpStatus.OK, description: '정상 작동 중' })
   async checkHealth() {
-    return {
-      status: 'ok',
-      model: 'llama3.2:3b',
-      timestamp: new Date().toISOString(),
-    };
+    try {
+      const modelStatus = await this.aiService.checkModelStatus();
+      return {
+        status: modelStatus ? 'ok' : 'warning',
+        model: 'llama3.2:3b',
+        modelAvailable: modelStatus,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        model: 'llama3.2:3b',
+        modelAvailable: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      };
+    }
   }
 }
