@@ -21,10 +21,10 @@ export class PlacesService {
   ) {}
 
   /**
-   * 하이브리드 검색: 내부 DB + 외부 API
+   * 하이브리드 검색: 내부 DB + 외부 API (위치 기반 필터링 지원)
    */
   async searchPlaces(searchDto: SearchPlacesDto): Promise<Place[]> {
-    const { query, category, limit = 20, useExternal = true } = searchDto;
+    const { query, category, limit = 20, useExternal = true, lat, lng, radius = 5000 } = searchDto;
 
     // 1. 캐시 확인
     const cacheKey = this.cacheService.generateKey('search', searchDto);
@@ -36,17 +36,36 @@ export class PlacesService {
 
     let results: Place[] = [];
 
-    // 2. 내부 DB 검색
-    const internalResults = await this.searchInternal(query, category, limit);
+    // 2. 내부 DB 검색 (위치 기반 필터링 포함)
+    const internalResults = await this.searchInternal(query, category, limit, lat, lng, radius);
     results = [...internalResults];
 
     // 3. 외부 API 검색 (필요시)
     if (useExternal && results.length < limit) {
       try {
-        const externalResults = await this.naverPlacesService.searchPlaces(
-          query,
-          limit - results.length
-        );
+        // 위치가 있으면 위치 기반 검색, 없으면 키워드 검색
+        let externalResults;
+        if (lat && lng) {
+          externalResults = await this.naverPlacesService.searchPlacesByLocation(
+            lat,
+            lng,
+            radius,
+            limit - results.length
+          );
+          // 키워드로 추가 필터링
+          if (query) {
+            externalResults = externalResults.filter((place: any) => 
+              place.name?.toLowerCase().includes(query.toLowerCase()) ||
+              place.address?.toLowerCase().includes(query.toLowerCase()) ||
+              place.category?.toLowerCase().includes(query.toLowerCase())
+            );
+          }
+        } else {
+          externalResults = await this.naverPlacesService.searchPlaces(
+            query,
+            limit - results.length
+          );
+        }
         
         // 외부 결과를 내부 형식으로 변환하고 캐시
         const convertedResults = await this.processExternalResults(externalResults);
@@ -64,21 +83,58 @@ export class PlacesService {
   }
 
   /**
-   * 내부 DB 검색
+   * 내부 DB 검색 (위치 기반 필터링 지원)
    */
   private async searchInternal(
     query: string,
     category?: string,
-    limit: number = 20
+    limit: number = 20,
+    lat?: number,
+    lng?: number,
+    radius?: number
   ): Promise<Place[]> {
     const qb = this.placeRepository.createQueryBuilder('place');
 
-    // 텍스트 검색
-    if (query) {
+    // 위치 기반 필터링 (lat, lng가 있으면)
+    if (lat && lng && radius) {
       qb.where(
-        '(place.name ILIKE :query OR place.address ILIKE :query OR place.tags::text ILIKE :query)',
-        { query: `%${query}%` }
+        `ST_DWithin(
+          place.location::geography,
+          ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+          :radius
+        )`,
+        { lat, lng, radius }
       );
+
+      // 텍스트 검색 (AND 조건)
+      if (query) {
+        qb.andWhere(
+          '(place.name ILIKE :query OR place.address ILIKE :query OR place.tags::text ILIKE :query)',
+          { query: `%${query}%` }
+        );
+      }
+
+      // 거리순 정렬
+      qb.addSelect(
+        `ST_Distance(
+          place.location::geography,
+          ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
+        )`,
+        'distance'
+      );
+      qb.orderBy('distance', 'ASC');
+    } else {
+      // 위치 없이 텍스트 검색
+      if (query) {
+        qb.where(
+          '(place.name ILIKE :query OR place.address ILIKE :query OR place.tags::text ILIKE :query)',
+          { query: `%${query}%` }
+        );
+      }
+      
+      // 인기순 정렬
+      qb.orderBy('place.viewCount', 'DESC')
+        .addOrderBy('place.rating', 'DESC');
     }
 
     // 카테고리 필터
@@ -86,10 +142,7 @@ export class PlacesService {
       qb.andWhere('place.category = :category', { category });
     }
 
-    // 인기순 정렬
-    qb.orderBy('place.viewCount', 'DESC')
-      .addOrderBy('place.rating', 'DESC')
-      .limit(limit);
+    qb.limit(limit);
 
     return qb.getMany();
   }

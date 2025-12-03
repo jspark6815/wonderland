@@ -1,18 +1,37 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useAISearch } from '@/hooks/useAISearch';
 
-interface ChatInterfaceProps {
-  onClose?: () => void;
-  onSearch: (query: string) => void;
-  className?: string;
-}
-
-interface Message {
+// Message 타입 export
+export interface ChatMessage {
   id: string;
   type: 'user' | 'assistant';
   content: string;
   timestamp: Date;
   suggestions?: string[];
+}
+
+// 초기 메시지 생성 함수 export
+export const createInitialMessages = (): ChatMessage[] => [
+  {
+    id: '1',
+    type: 'assistant',
+    content: '안녕하세요! 저는 장소 추천 AI "원더"예요 ✨\n\n어떤 장소를 찾고 계신가요? 자연스럽게 말씀해주세요!',
+    timestamp: new Date(),
+    suggestions: QUICK_SUGGESTIONS.map(s => s.text),
+  },
+];
+
+interface ChatInterfaceProps {
+  onClose?: () => void;
+  onSearch: (query: string) => void;
+  className?: string;
+  // 상태를 부모에서 관리
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  input: string;
+  setInput: React.Dispatch<React.SetStateAction<string>>;
+  isLoading: boolean;
+  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 // 빠른 추천 예시
@@ -34,19 +53,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onClose,
   onSearch,
   className = '',
+  messages,
+  setMessages,
+  input,
+  setInput,
+  isLoading,
+  setIsLoading,
 }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      type: 'assistant',
-      content: '안녕하세요! 저는 장소 추천 AI "원더"예요 ✨\n\n어떤 장소를 찾고 계신가요? 자연스럽게 말씀해주세요!',
-      timestamp: new Date(),
-      suggestions: QUICK_SUGGESTIONS.map(s => s.text),
-    },
-  ]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [showQuickButtons, setShowQuickButtons] = useState(true);
+  const showQuickButtons = messages.length === 1;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { searchWithAI } = useAISearch();
@@ -62,7 +76,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const processMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
-    const userMessage: Message = {
+    const userMessage: ChatMessage = {
       id: Date.now().toString(),
       type: 'user',
       content: messageText.trim(),
@@ -72,7 +86,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
-    setShowQuickButtons(false);
 
     try {
       const result = await searchWithAI(messageText);
@@ -93,7 +106,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         responseContent += `\n📍 지역: ${result.location}`;
       }
       
-      const assistantMessage: Message = {
+      const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         content: responseContent,
@@ -111,13 +124,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
       
     } catch (error: any) {
-      const errorMessage: Message = {
+      const errMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         content: `죄송해요, 문제가 발생했어요 😥\n\n${error?.message || '다시 시도해주세요.'}`,
         timestamp: new Date(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [...prev, errMsg]);
     } finally {
       setIsLoading(false);
     }

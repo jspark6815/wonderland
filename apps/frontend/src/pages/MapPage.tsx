@@ -1,8 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { NaverMap } from '@/components/map/NaverMap';
 import { PlaceList } from '@/components/places/PlaceList';
 import { PlaceDetail } from '@/components/places/PlaceDetail';
-import { ChatInterface } from '@/components/ai/ChatInterface';
+import { ChatInterface, ChatMessage, createInitialMessages } from '@/components/ai/ChatInterface';
 import { useIntegratedSearch } from '@/hooks/useIntegratedSearch';
 import { Place } from '@wonderland/shared';
 import { searchPlacesByBoundsAPI, getPlaceDetailByLocationAPI, getPlaceDetailAPI } from '@/api/places.api';
@@ -18,25 +18,41 @@ export const MapPage: React.FC = () => {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
+  // 현재 지도 중심 좌표 (검색 시 위치 기반 필터링에 사용)
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({
+    lat: 37.5665, // 기본값: 서울시청
+    lng: 126.9780,
+  });
+  
+  // AI Chat 상태 (부모에서 관리하여 multi-turn 대화 유지)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(createInitialMessages());
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  
   const { 
     search, 
     places, 
     isLoading, 
   } = useIntegratedSearch();
 
-  // 검색 실행
-  const handleSearch = useCallback(async (query: string) => {
+  // 검색 실행 (현재 지도 위치 기반)
+  const handleSearch = useCallback(async (query: string, category?: string | null) => {
     if (!query.trim()) return;
     
     setSearchQuery(query);
     setShowSidebar(true); // 검색 시 사이드바 자동 열기
     
     try {
-      await search(query);
+      await search(query, {
+        category,
+        lat: mapCenter.lat,
+        lng: mapCenter.lng,
+        radius: 5000, // 5km 반경
+      });
     } catch (err) {
       console.error('검색 실패:', err);
     }
-  }, [search]);
+  }, [search, mapCenter]);
 
   // 장소 선택
   const handlePlaceSelect = useCallback(async (place: Place) => {
@@ -79,13 +95,20 @@ export const MapPage: React.FC = () => {
     }
   }, []);
 
-  // 지도 영역 변경 시 자동 검색
+  // 지도 영역 변경 시 자동 검색 + 지도 중심 업데이트
   const handleBoundsChange = useCallback(async (bounds: {
     south: number;
     north: number;
     west: number;
     east: number;
   }) => {
+    // 지도 중심 좌표 업데이트 (다음 검색에 사용)
+    const newCenter = {
+      lat: (bounds.south + bounds.north) / 2,
+      lng: (bounds.west + bounds.east) / 2,
+    };
+    setMapCenter(newCenter);
+    
     if (searchQuery.trim()) return;
 
     setIsAutoSearching(true);
@@ -111,6 +134,21 @@ export const MapPage: React.FC = () => {
     setSearchQuery('');
     setShowSidebar(false);
   }, []);
+
+  // 카테고리 변경 시 재검색
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      // 검색어가 있으면 새 카테고리 + 현재 위치로 재검색
+      search(searchQuery, {
+        category: selectedCategory,
+        lat: mapCenter.lat,
+        lng: mapCenter.lng,
+        radius: 5000,
+      });
+    }
+    // searchQuery, mapCenter 변경 시에는 handleSearch가 처리하므로 selectedCategory만 의존
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory]);
 
   // 표시할 장소 목록
   const displayPlaces = places.length > 0 ? places : autoSearchPlaces;
@@ -151,7 +189,7 @@ export const MapPage: React.FC = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    handleSearch(searchQuery);
+                    handleSearch(searchQuery, selectedCategory);
                   }
                 }}
                 placeholder="장소, 주소 검색"
@@ -169,13 +207,27 @@ export const MapPage: React.FC = () => {
               )}
             </div>
             
+            {/* 검색 버튼 */}
+            <button
+              onClick={() => handleSearch(searchQuery, selectedCategory)}
+              disabled={!searchQuery.trim()}
+              className="px-4 py-3.5 bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-all flex items-center gap-2 border-l disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <span className="hidden sm:inline">검색</span>
+            </button>
+            
             {/* AI 추천 버튼 */}
             <button
               onClick={() => setShowAIChat(true)}
-              className="px-4 py-3.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium hover:from-blue-600 hover:to-blue-700 transition-all flex items-center gap-2"
+              className="px-4 py-3.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium hover:from-purple-600 hover:to-pink-600 transition-all flex items-center gap-2"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3L13.5 8.5L19 10L13.5 11.5L12 17L10.5 11.5L5 10L10.5 8.5L12 3Z" fill="currentColor" />
+                <path d="M19 3L19.5 4.5L21 5L19.5 5.5L19 7L18.5 5.5L17 5L18.5 4.5L19 3Z" fill="currentColor" />
+                <path d="M5 17L5.5 18.5L7 19L5.5 19.5L5 21L4.5 19.5L3 19L4.5 18.5L5 17Z" fill="currentColor" />
               </svg>
               <span className="hidden sm:inline">AI 추천</span>
             </button>
@@ -283,7 +335,7 @@ export const MapPage: React.FC = () => {
         </div>
       )}
 
-      {/* AI 추천 채팅 모달 */}
+      {/* AI 추천 채팅 모달 - 상태는 부모에서 관리 (multi-turn 대화 유지) */}
       {showAIChat && (
         <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg h-[600px] max-h-[80vh] flex flex-col overflow-hidden">
@@ -292,9 +344,15 @@ export const MapPage: React.FC = () => {
               onSearch={(query) => {
                 setShowAIChat(false);
                 setSearchQuery(query);
-                handleSearch(query);
+                handleSearch(query, selectedCategory);
               }}
               className="h-full"
+              messages={chatMessages}
+              setMessages={setChatMessages}
+              input={chatInput}
+              setInput={setChatInput}
+              isLoading={isChatLoading}
+              setIsLoading={setIsChatLoading}
             />
           </div>
         </div>
