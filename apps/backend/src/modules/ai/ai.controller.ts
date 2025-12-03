@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
-import { AiService } from './ai.service';
+import { AiService, InterpretedQuery } from './ai.service';
 import { RecommendPlaceDto } from './dto/recommend-place.dto';
 import { SummarizeReviewsDto } from './dto/summarize-reviews.dto';
 import { InterpretQueryDto } from './dto/interpret-query.dto';
@@ -60,7 +60,7 @@ export class AiController {
   @Post('interpret')
   @ApiOperation({ summary: '자연어 쿼리 해석' })
   @ApiResponse({ status: HttpStatus.OK, description: '해석 성공' })
-  async interpretQuery(@Body() dto: InterpretQueryDto) {
+  async interpretQuery(@Body() dto: InterpretQueryDto): Promise<InterpretedQuery> {
     return this.aiService.interpretQuery(dto);
   }
 

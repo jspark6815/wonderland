@@ -46,6 +46,8 @@ export class NaverPlacesService {
 
   /**
    * 위치 기반 장소 검색
+   * 네이버 API는 위치 기반 검색을 직접 지원하지 않으므로
+   * 일반적인 키워드로 검색 후 거리로 필터링
    */
   async searchPlacesByLocation(
     lat: number,
@@ -54,19 +56,55 @@ export class NaverPlacesService {
     display: number = 20
   ): Promise<any[]> {
     try {
-      // 네이버 지역 검색 API는 위치 기반 검색을 지원하지 않으므로
-      // 중심점 주변의 장소를 검색하기 위해 주소로 변환하거나
-      // 일반 검색을 수행
-      // 여기서는 간단히 빈 배열 반환 (실제로는 geocoding 후 검색 필요)
       this.logger.debug(`Searching places near ${lat}, ${lng} within ${radius}m`);
       
-      // TODO: 네이버 지오코딩 API를 사용하여 주소 변환 후 검색
-      // 현재는 빈 배열 반환
-      return [];
+      // 일반적인 장소 카테고리로 검색
+      const searchQueries = ['음식점', '카페', '편의점', '병원', '마트'];
+      const allResults: any[] = [];
+      
+      for (const query of searchQueries) {
+        try {
+          const results = await this.searchPlaces(query, 10);
+          
+          // 거리 계산 및 필터링
+          const filteredResults = results
+            .map((place: any) => ({
+              ...place,
+              distance: this.calculateDistance(lat, lng, place.latitude, place.longitude),
+            }))
+            .filter((place: any) => place.distance <= radius);
+          
+          allResults.push(...filteredResults);
+        } catch (e) {
+          this.logger.warn(`Search for "${query}" failed:`, e);
+        }
+      }
+      
+      // 중복 제거 및 거리순 정렬
+      const uniqueResults = this.removeDuplicates(allResults);
+      return uniqueResults
+        .sort((a: any, b: any) => a.distance - b.distance)
+        .slice(0, display);
+        
     } catch (error) {
       this.logger.error('Naver API location search failed:', error);
       return [];
     }
+  }
+
+  /**
+   * 중복 장소 제거
+   */
+  private removeDuplicates(places: any[]): any[] {
+    const seen = new Set<string>();
+    return places.filter(place => {
+      const key = `${place.latitude}_${place.longitude}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
   }
 
   /**

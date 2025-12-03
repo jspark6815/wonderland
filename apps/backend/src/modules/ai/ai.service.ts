@@ -32,7 +32,7 @@ const SYSTEM_PROMPTS = {
 반드시 JSON 형식으로만 응답하세요.`,
 };
 
-interface InterpretedQuery {
+export interface InterpretedQuery {
   searchQuery: string;
   categories: string[];
   keywords: string[];
