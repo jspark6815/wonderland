@@ -5,6 +5,7 @@ import { APP_FILTER, APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AiModule } from './modules/ai/ai.module';
 import { PlacesModule } from './modules/places/places.module';
+import { LogsModule } from './modules/logs/logs.module';
 import { HttpExceptionFilter } from './common/filters';
 import { LoggingInterceptor } from './common/interceptors';
 import { CustomThrottlerGuard } from './common/guards';
@@ -47,8 +48,11 @@ import { CustomThrottlerGuard } from './common/guards';
       password: process.env.DATABASE_PASSWORD || 'postgres',
       database: process.env.DATABASE_NAME || 'wonderland',
       autoLoadEntities: true,
-      synchronize: process.env.NODE_ENV === 'development',
+      // 개발 환경에서 테이블 자동 생성 (NODE_ENV가 없거나 development일 때)
+      synchronize: process.env.NODE_ENV !== 'production',
     }),
+    // LogsModule은 글로벌 모듈로 설정되어 있어 LoggingInterceptor에서 사용 가능
+    LogsModule,
     AiModule,
     PlacesModule,
   ],
