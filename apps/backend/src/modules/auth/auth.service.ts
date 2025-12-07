@@ -1,0 +1,241 @@
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import { User, UserRole } from '../../entities/user.entity';
+import { RegisterDto, LoginDto } from './dto';
+
+/**
+ * JWT 페이로드 인터페이스
+ */
+export interface JwtPayload {
+  sub: string; // 사용자 ID
+  email: string;
+  role: UserRole;
+}
+
+/**
+ * 토큰 응답 인터페이스
+ */
+export interface TokenResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
+
+/**
+ * 인증 서비스
+ */
+@Injectable()
+export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  private readonly jwtSecret: string;
+  private readonly jwtExpiresIn: string;
+  private readonly refreshSecret: string;
+  private readonly refreshExpiresIn: string;
+
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {
+    const jwtConfig = this.configService.get('jwt');
+    this.jwtSecret = jwtConfig?.secret || 'wonderland-jwt-secret';
+    this.jwtExpiresIn = jwtConfig?.expiresIn || '15m';
+    this.refreshSecret = jwtConfig?.refreshSecret || 'wonderland-refresh-secret';
+    this.refreshExpiresIn = jwtConfig?.refreshExpiresIn || '7d';
+  }
+
+  /**
+   * 회원가입
+   */
+  async register(registerDto: RegisterDto): Promise<TokenResponse> {
+    const { email, password, name } = registerDto;
+
+    // 이메일 중복 체크
+    const existingUser = await this.userRepository.findOne({ where: { email } });
+    if (existingUser) {
+      throw new ConflictException('이미 등록된 이메일입니다.');
+    }
+
+    // 비밀번호 해시
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // 사용자 생성
+    const user = this.userRepository.create({
+      email,
+      password: hashedPassword,
+      name,
+      role: UserRole.USER,
+    });
+
+    await this.userRepository.save(user);
+    this.logger.log(`User registered: ${email}`);
+
+    // 토큰 발급
+    return this.generateTokens(user);
+  }
+
+  /**
+   * 로그인
+   */
+  async login(loginDto: LoginDto): Promise<TokenResponse> {
+    const { email, password } = loginDto;
+
+    // 사용자 조회
+    const user = await this.userRepository.findOne({ where: { email } });
+    if (!user) {
+      throw new UnauthorizedException('이메일 또는 비밀번호가 올바르지 않습니다.');
+    }
+
+    // 활성 상태 체크
+    if (!user.isActive) {
+      throw new UnauthorizedException('비활성화된 계정입니다.');
+    }
+
+    // 비밀번호 검증
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('이메일 또는 비밀번호가 올바르지 않습니다.');
+    }
+
+    // 마지막 로그인 시간 업데이트
+    await this.userRepository.update(user.id, { lastLoginAt: new Date() });
+    this.logger.log(`User logged in: ${email}`);
+
+    // 토큰 발급
+    return this.generateTokens(user);
+  }
+
+  /**
+   * 토큰 갱신
+   */
+  async refreshTokens(refreshToken: string): Promise<TokenResponse> {
+    try {
+      // Refresh Token 검증
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken, {
+        secret: this.refreshSecret,
+      });
+
+      // 사용자 조회
+      const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+      if (!user || !user.isActive) {
+        throw new UnauthorizedException('유효하지 않은 토큰입니다.');
+      }
+
+      // 저장된 Refresh Token과 비교
+      if (user.refreshToken !== refreshToken) {
+        throw new UnauthorizedException('토큰이 만료되었습니다. 다시 로그인해주세요.');
+      }
+
+      // 새 토큰 발급
+      return this.generateTokens(user);
+    } catch (error) {
+      this.logger.warn(`Token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new UnauthorizedException('토큰 갱신에 실패했습니다. 다시 로그인해주세요.');
+    }
+  }
+
+  /**
+   * 로그아웃
+   */
+  async logout(userId: string): Promise<void> {
+    await this.userRepository.update(userId, { refreshToken: undefined });
+    this.logger.log(`User logged out: ${userId}`);
+  }
+
+  /**
+   * Access Token 검증
+   */
+  async validateAccessToken(token: string): Promise<JwtPayload> {
+    try {
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
+        secret: this.jwtSecret,
+      });
+
+      // 사용자 존재 및 활성 상태 체크
+      const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+      if (!user || !user.isActive) {
+        throw new UnauthorizedException('유효하지 않은 토큰입니다.');
+      }
+
+      return payload;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new UnauthorizedException('토큰 검증에 실패했습니다.');
+    }
+  }
+
+  /**
+   * 사용자 ID로 조회
+   */
+  async findById(id: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { id } });
+  }
+
+  /**
+   * 토큰 생성
+   */
+  private async generateTokens(user: User): Promise<TokenResponse> {
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    };
+
+    // 만료 시간 계산 (초)
+    const accessExpiresInSeconds = this.parseExpiresIn(this.jwtExpiresIn);
+    const refreshExpiresInSeconds = this.parseExpiresIn(this.refreshExpiresIn);
+
+    // Access Token 생성
+    const accessToken = await this.jwtService.signAsync(payload, {
+      secret: this.jwtSecret,
+      expiresIn: accessExpiresInSeconds,
+    });
+
+    // Refresh Token 생성
+    const refreshToken = await this.jwtService.signAsync(payload, {
+      secret: this.refreshSecret,
+      expiresIn: refreshExpiresInSeconds,
+    });
+
+    // Refresh Token 저장 (DB)
+    await this.userRepository.update(user.id, { refreshToken });
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: accessExpiresInSeconds,
+    };
+  }
+
+  /**
+   * 만료 시간 문자열을 초로 변환
+   */
+  private parseExpiresIn(expiresIn: string): number {
+    const match = expiresIn.match(/^(\d+)([smhd])$/);
+    if (!match) return 900; // 기본 15분
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+
+    switch (unit) {
+      case 's': return value;
+      case 'm': return value * 60;
+      case 'h': return value * 3600;
+      case 'd': return value * 86400;
+      default: return 900;
+    }
+  }
+}
+
