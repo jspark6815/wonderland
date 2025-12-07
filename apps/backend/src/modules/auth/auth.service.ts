@@ -12,12 +12,13 @@ import * as bcrypt from 'bcrypt';
 import { User, UserRole } from '../../entities/user.entity';
 import { RegisterDto, LoginDto } from './dto';
 
+import { JwtPayload as BaseJwtPayload } from '../../common/interfaces';
+
 /**
- * JWT 페이로드 인터페이스
+ * AuthService 전용 JWT 페이로드 (UserRole 타입 사용)
+ * 외부에서는 common/interfaces의 JwtPayload 사용
  */
-export interface JwtPayload {
-  sub: string; // 사용자 ID
-  email: string;
+interface AuthJwtPayload extends Omit<BaseJwtPayload, 'role'> {
   role: UserRole;
 }
 
@@ -48,9 +49,19 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {
     const jwtConfig = this.configService.get('jwt');
-    this.jwtSecret = jwtConfig?.secret || 'wonderland-jwt-secret';
+    
+    // P0: 시크릿 필수 환경변수 검증 (기본값 하드코딩 제거)
+    this.jwtSecret = jwtConfig?.secret || process.env.JWT_SECRET;
+    this.refreshSecret = jwtConfig?.refreshSecret || process.env.JWT_REFRESH_SECRET;
+    
+    if (!this.jwtSecret) {
+      throw new Error('JWT_SECRET is required. Set it in environment variables.');
+    }
+    if (!this.refreshSecret) {
+      throw new Error('JWT_REFRESH_SECRET is required. Set it in environment variables.');
+    }
+    
     this.jwtExpiresIn = jwtConfig?.expiresIn || '15m';
-    this.refreshSecret = jwtConfig?.refreshSecret || 'wonderland-refresh-secret';
     this.refreshExpiresIn = jwtConfig?.refreshExpiresIn || '7d';
   }
 
@@ -121,7 +132,7 @@ export class AuthService {
   async refreshTokens(refreshToken: string): Promise<TokenResponse> {
     try {
       // Refresh Token 검증
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken, {
+      const payload = await this.jwtService.verifyAsync<AuthJwtPayload>(refreshToken, {
         secret: this.refreshSecret,
       });
 
@@ -131,8 +142,13 @@ export class AuthService {
         throw new UnauthorizedException('유효하지 않은 토큰입니다.');
       }
 
-      // 저장된 Refresh Token과 비교
-      if (user.refreshToken !== refreshToken) {
+      // P0: 저장된 Refresh Token 해시와 비교 (bcrypt.compare 사용)
+      if (!user.refreshToken) {
+        throw new UnauthorizedException('토큰이 만료되었습니다. 다시 로그인해주세요.');
+      }
+      
+      const isRefreshTokenValid = await bcrypt.compare(refreshToken, user.refreshToken);
+      if (!isRefreshTokenValid) {
         throw new UnauthorizedException('토큰이 만료되었습니다. 다시 로그인해주세요.');
       }
 
@@ -155,9 +171,9 @@ export class AuthService {
   /**
    * Access Token 검증
    */
-  async validateAccessToken(token: string): Promise<JwtPayload> {
+  async validateAccessToken(token: string): Promise<AuthJwtPayload> {
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
+      const payload = await this.jwtService.verifyAsync<AuthJwtPayload>(token, {
         secret: this.jwtSecret,
       });
 
@@ -209,12 +225,13 @@ export class AuthService {
       expiresIn: refreshExpiresInSeconds,
     });
 
-    // Refresh Token 저장 (DB)
-    await this.userRepository.update(user.id, { refreshToken });
+    // P0: Refresh Token 해시하여 저장 (평문 저장 금지)
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+    await this.userRepository.update(user.id, { refreshToken: hashedRefreshToken });
 
     return {
       accessToken,
-      refreshToken,
+      refreshToken, // 클라이언트에는 원본 토큰 반환
       expiresIn: accessExpiresInSeconds,
     };
   }

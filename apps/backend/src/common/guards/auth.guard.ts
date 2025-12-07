@@ -12,17 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { IS_PUBLIC_KEY } from '../decorators';
-
-/**
- * JWT 페이로드 인터페이스
- */
-interface JwtPayload {
-  sub: string;
-  email: string;
-  role: string;
-  iat?: number;
-  exp?: number;
-}
+import { JwtPayload } from '../interfaces';
 
 /**
  * 인증 Guard
@@ -47,14 +37,16 @@ export class AuthGuard implements CanActivate {
     // 환경변수로 인증 활성화 여부 결정
     this.isAuthEnabled = process.env.AUTH_ENABLED === 'true';
     
-    // JWT 시크릿 가져오기
+    // P0: JWT 시크릿 가져오기 (기본값 하드코딩 제거)
     const jwtConfig = this.configService?.get('jwt');
-    this.jwtSecret = jwtConfig?.secret || process.env.JWT_SECRET || 'wonderland-jwt-secret';
+    this.jwtSecret = jwtConfig?.secret || process.env.JWT_SECRET || '';
     
     if (!this.isAuthEnabled) {
       this.logger.warn(
         '⚠️  Authentication is DISABLED. Set AUTH_ENABLED=true to enable.',
       );
+    } else if (!this.jwtSecret) {
+      throw new Error('JWT_SECRET is required when AUTH_ENABLED=true');
     }
   }
 
