@@ -102,7 +102,7 @@ export class PlacesController {
     return this.placesService.getPopularPlaces(limit);
   }
 
-  // 주의: 'detail/by-location'은 ':id' 보다 먼저 정의되어야 함
+  // 주의: 'detail/by-location'과 'history/*'는 ':id' 보다 먼저 정의되어야 함
   // NestJS는 라우트를 순서대로 매칭하므로, 구체적인 경로가 먼저 와야 함
   @Get('detail/by-location')
   @Public()
@@ -120,45 +120,8 @@ export class PlacesController {
     return this.placesService.getPlaceDetailByNameAndLocation(name, lat, lng);
   }
 
-  @Get(':id')
-  @Public()
-  @ApiOperation({ summary: '장소 상세 정보 (ID로 조회)' })
-  @ApiResponse({
-    status: 200,
-    description: '장소 상세 정보',
-    type: Place,
-  })
-  async getPlaceDetail(@Param('id') id: string): Promise<Place> {
-    return this.placesService.getPlaceDetail(id);
-  }
-
-  @Post()
-  @Public()
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: '장소 등록' })
-  @ApiResponse({
-    status: 201,
-    description: '장소 등록 완료',
-    type: Place,
-  })
-  async createPlace(@Body() createDto: CreatePlaceDto): Promise<Place> {
-    return this.placesService.createPlace(createDto);
-  }
-
-  @Put(':id/favorite')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: '즐겨찾기 토글' })
-  @ApiResponse({
-    status: 200,
-    description: '즐겨찾기 상태 변경',
-    type: Place,
-  })
-  async toggleFavorite(@Param('id') id: string): Promise<Place> {
-    return this.placesService.toggleFavorite(id);
-  }
-
   // ===============================
-  // 검색 기록 API
+  // 검색 기록 API (반드시 :id 라우트보다 먼저 정의)
   // ===============================
 
   @Get('history/recent')
@@ -233,5 +196,46 @@ export class PlacesController {
     }
     const deletedCount = await this.searchHistoryService.clearHistory(userId);
     return { deletedCount };
+  }
+
+  // ===============================
+  // ID 기반 라우트 (와일드카드 - 마지막에 정의)
+  // ===============================
+
+  @Get(':id')
+  @Public()
+  @ApiOperation({ summary: '장소 상세 정보 (ID로 조회)' })
+  @ApiResponse({
+    status: 200,
+    description: '장소 상세 정보',
+    type: Place,
+  })
+  async getPlaceDetail(@Param('id') id: string): Promise<Place> {
+    return this.placesService.getPlaceDetail(id);
+  }
+
+  @Post()
+  @Public()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: '장소 등록' })
+  @ApiResponse({
+    status: 201,
+    description: '장소 등록 완료',
+    type: Place,
+  })
+  async createPlace(@Body() createDto: CreatePlaceDto): Promise<Place> {
+    return this.placesService.createPlace(createDto);
+  }
+
+  @Put(':id/favorite')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '즐겨찾기 토글' })
+  @ApiResponse({
+    status: 200,
+    description: '즐겨찾기 상태 변경',
+    type: Place,
+  })
+  async toggleFavorite(@Param('id') id: string): Promise<Place> {
+    return this.placesService.toggleFavorite(id);
   }
 }
