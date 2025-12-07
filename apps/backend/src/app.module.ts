@@ -6,6 +6,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { AiModule } from './modules/ai/ai.module';
 import { PlacesModule } from './modules/places/places.module';
 import { LogsModule } from './modules/logs/logs.module';
+import { HealthModule } from './modules/health';
 import { HttpExceptionFilter } from './common/filters';
 import { LoggingInterceptor } from './common/interceptors';
 import { CustomThrottlerGuard, AuthGuard } from './common/guards';
@@ -65,6 +66,8 @@ import { AuthModule } from './modules/auth/auth.module';
     LogsModule,
     // 인증 모듈 (JWT 기반)
     AuthModule,
+    // 헬스 체크 모듈
+    HealthModule,
     AiModule,
     PlacesModule,
   ],
