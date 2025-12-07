@@ -1,5 +1,6 @@
 import { apiClient } from './client';
-import { Place, SearchFilters } from '@wonderland/shared';
+import type { Place, SearchFilters } from '../types';
+import type { MapBounds } from '../types';
 
 /**
  * 장소 검색
@@ -63,18 +64,15 @@ export const getPopularPlacesAPI = async (): Promise<Place[]> => {
  * 지도 영역 기반 장소 검색
  */
 export const searchPlacesByBoundsAPI = async (
-  south: number,
-  north: number,
-  west: number,
-  east: number,
+  bounds: MapBounds,
   category?: string,
   limit: number = 50
 ): Promise<Place[]> => {
   const params: Record<string, unknown> = {
-    south,
-    north,
-    west,
-    east,
+    south: bounds.south,
+    north: bounds.north,
+    west: bounds.west,
+    east: bounds.east,
     limit,
   };
   
@@ -84,4 +82,55 @@ export const searchPlacesByBoundsAPI = async (
   
   const data = await apiClient.get<Place[]>('/places/bounds', { params });
   return data as unknown as Place[];
+};
+
+// ===============================
+// 검색 기록 API
+// ===============================
+
+/**
+ * 검색 기록 타입
+ */
+export interface SearchHistoryItem {
+  id: string;
+  query: string;
+  category?: string;
+  latitude?: number;
+  longitude?: number;
+  resultCount: number;
+  createdAt: string;
+}
+
+/**
+ * 최근 검색 기록 조회
+ */
+export const getRecentSearchHistoryAPI = async (limit: number = 10): Promise<SearchHistoryItem[]> => {
+  const data = await apiClient.get<SearchHistoryItem[]>('/places/history/recent', {
+    params: { limit },
+  });
+  return data as unknown as SearchHistoryItem[];
+};
+
+/**
+ * 마지막 검색 기록 조회
+ */
+export const getLastSearchHistoryAPI = async (): Promise<SearchHistoryItem | null> => {
+  const data = await apiClient.get<SearchHistoryItem | null>('/places/history/last');
+  return data as unknown as SearchHistoryItem | null;
+};
+
+/**
+ * 검색 기록 삭제
+ */
+export const deleteSearchHistoryAPI = async (searchId: string): Promise<{ deleted: boolean }> => {
+  const data = await apiClient.delete<{ deleted: boolean }>(`/places/history/${searchId}`);
+  return data as unknown as { deleted: boolean };
+};
+
+/**
+ * 모든 검색 기록 삭제
+ */
+export const clearSearchHistoryAPI = async (): Promise<{ deletedCount: number }> => {
+  const data = await apiClient.delete<{ deletedCount: number }>('/places/history');
+  return data as unknown as { deletedCount: number };
 };
