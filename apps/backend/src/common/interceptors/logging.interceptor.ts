@@ -105,7 +105,7 @@ export class LoggingInterceptor implements NestInterceptor {
             requestBody: Object.keys(sanitizedBody).length > 0 ? sanitizedBody : undefined,
             queryParams: Object.keys(query || {}).length > 0 ? query as Record<string, unknown> : undefined,
             errorMessage: error.message?.substring(0, 1000),
-            errorStack: error.stack?.substring(0, 5000),
+            errorStack: this.sanitizeErrorStack(error.stack),
             isError: true,
             isSlow,
           });
@@ -163,19 +163,66 @@ export class LoggingInterceptor implements NestInterceptor {
   }
 
   /**
-   * 민감 정보 제거
+   * 민감 정보 제거 (중첩 객체 포함)
    */
-  private sanitizeBody(body: Record<string, any>): Record<string, any> {
-    const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'authorization'];
-    const sanitized = { ...body };
+  private sanitizeBody(body: Record<string, unknown>, depth: number = 0): Record<string, unknown> {
+    // 최대 깊이 제한 (무한 재귀 방지)
+    const MAX_DEPTH = 5;
+    if (depth > MAX_DEPTH) {
+      return { _truncated: '[MAX_DEPTH_EXCEEDED]' };
+    }
 
-    for (const field of sensitiveFields) {
-      if (sanitized[field]) {
-        sanitized[field] = '[REDACTED]';
+    const sensitiveFields = [
+      'password', 'passwd', 'pwd',
+      'token', 'accessToken', 'refreshToken', 'authToken',
+      'secret', 'clientSecret', 'secretKey',
+      'apiKey', 'apiSecret', 'api_key',
+      'authorization', 'auth',
+      'creditCard', 'cardNumber', 'cvv', 'cvc',
+      'ssn', 'socialSecurityNumber',
+      'privateKey', 'private_key',
+    ];
+    
+    const sensitiveFieldsLower = sensitiveFields.map(f => f.toLowerCase());
+    const sanitized: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(body)) {
+      const keyLower = key.toLowerCase();
+      
+      // 민감 필드 체크 (대소문자 무시)
+      if (sensitiveFieldsLower.some(sf => keyLower.includes(sf))) {
+        sanitized[key] = '[REDACTED]';
+      } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        // 중첩 객체 재귀 처리
+        sanitized[key] = this.sanitizeBody(value as Record<string, unknown>, depth + 1);
+      } else if (Array.isArray(value)) {
+        // 배열 처리
+        sanitized[key] = value.map(item => {
+          if (item !== null && typeof item === 'object') {
+            return this.sanitizeBody(item as Record<string, unknown>, depth + 1);
+          }
+          return item;
+        });
+      } else {
+        sanitized[key] = value;
       }
     }
 
     return sanitized;
+  }
+
+  /**
+   * 프로덕션 환경에서 스택 트레이스 보호
+   */
+  private sanitizeErrorStack(stack?: string): string | undefined {
+    if (!stack) return undefined;
+    
+    // 프로덕션 환경에서는 스택 트레이스 저장 안함
+    if (process.env.NODE_ENV === 'production') {
+      return '[STACK_HIDDEN_IN_PRODUCTION]';
+    }
+    
+    return stack.substring(0, 5000);
   }
 }
 

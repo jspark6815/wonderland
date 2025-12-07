@@ -13,6 +13,7 @@ import { RecommendPlaceDto } from './dto/recommend-place.dto';
 import { SummarizeReviewsDto } from './dto/summarize-reviews.dto';
 import { InterpretQueryDto } from './dto/interpret-query.dto';
 import { ComparePlacesDto } from './dto/compare-places.dto';
+import { Public } from '../../common/decorators';
 
 @ApiTags('ai')
 @Controller('api/v1/ai')
@@ -42,8 +43,9 @@ export class AiController {
         res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
       }
       res.write('data: [DONE]\n\n');
-    } catch (error) {
-      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+    } catch {
+      // 에러 상세 정보는 노출하지 않음
+      res.write(`data: ${JSON.stringify({ error: 'AI 추천 생성 중 오류가 발생했습니다.' })}\n\n`);
     } finally {
       res.end();
     }
@@ -72,6 +74,7 @@ export class AiController {
     return { comparison };
   }
 
+  @Public()
   @Get('health')
   @ApiOperation({ summary: 'AI 서비스 상태 확인' })
   @ApiResponse({ status: HttpStatus.OK, description: '정상 작동 중' })
