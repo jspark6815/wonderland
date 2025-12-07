@@ -58,7 +58,6 @@ export const loadNaverMapScript = (
     script.onload = () => {
       isLoading = false;
       isLoaded = true;
-      console.log('네이버 지도 API 로드 완료');
       resolve();
     };
 

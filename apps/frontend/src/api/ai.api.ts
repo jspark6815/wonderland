@@ -1,17 +1,13 @@
 import { apiClient } from './client';
+import type {
+  InterpretedQuery,
+  RecommendPlaceRequest,
+  SummarizeReviewsRequest,
+} from '../types';
 
-export interface AIInterpretationResult {
-  searchQuery: string;
-  categories: string[];
-  keywords: string[];
-  location?: string;
-  atmosphere?: string[];
-  priceRange?: string;
-  situation?: string;
-  specialRequests?: string[];
-  response: string;
-}
-
+/**
+ * AI 검색 응답 (프론트엔드 전용)
+ */
 export interface AISearchResponse {
   response: string;
   searchQuery: string;
@@ -27,7 +23,7 @@ export interface AISearchResponse {
  */
 export const aiSearchAPI = async (query: string): Promise<AISearchResponse> => {
   try {
-    const result = await apiClient.post<AIInterpretationResult>('/ai/interpret', {
+    const result = await apiClient.post<InterpretedQuery>('/ai/interpret', {
       query,
     });
     
@@ -40,8 +36,12 @@ export const aiSearchAPI = async (query: string): Promise<AISearchResponse> => {
       atmosphere: result.atmosphere,
       situation: result.situation,
     };
-  } catch (error) {
-    console.error('AI 해석 실패:', error);
+  } catch {
+    // 개발 환경에서만 로깅
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.error('AI 해석 실패');
+    }
     return {
       response: `"${query}"로 검색해볼게요!`,
       searchQuery: query,
@@ -54,28 +54,23 @@ export const aiSearchAPI = async (query: string): Promise<AISearchResponse> => {
 /**
  * AI 장소 추천
  */
-export const aiRecommendAPI = async (preferences: {
-  preferences: string[];
-  location?: string;
-  budget?: string;
-  occasion?: string;
-}) => {
-  const response = await apiClient.post('/ai/recommend', preferences);
+export const aiRecommendAPI = async (request: RecommendPlaceRequest) => {
+  const response = await apiClient.post('/ai/recommend', request);
   return response;
 };
 
 /**
  * AI 리뷰 요약
  */
-export const aiSummarizeReviewsAPI = async (reviews: string[]): Promise<string> => {
-  const response = await apiClient.post<{ summary: string }>('/ai/summarize', { reviews });
+export const aiSummarizeReviewsAPI = async (request: SummarizeReviewsRequest): Promise<string> => {
+  const response = await apiClient.post<{ summary: string }>('/ai/summarize', request);
   return response.summary || '';
 };
 
 /**
  * AI 장소 비교
  */
-export const aiComparePlacesAPI = async (places: any[]): Promise<string> => {
+export const aiComparePlacesAPI = async (places: Array<{ name: string; description?: string }>): Promise<string> => {
   const response = await apiClient.post<{ comparison: string }>('/ai/compare', { places });
   return response.comparison || '';
 };
