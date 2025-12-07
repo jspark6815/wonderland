@@ -1,9 +1,18 @@
+// Decorators
+export * from './decorators';
+
 // Filters
 export * from './filters';
+
+// Guards
+export * from './guards';
 
 // Interceptors
 export * from './interceptors';
 
-// Guards
-export * from './guards';
+// Interfaces
+export * from './interfaces';
+
+// Pipes
+export * from './pipes';
 
