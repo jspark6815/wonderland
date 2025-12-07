@@ -3,37 +3,69 @@ import {
   Get,
   Post,
   Put,
+  Delete,
   Body,
   Param,
   Query,
   HttpCode,
   HttpStatus,
+  Req,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Request } from 'express';
 import { PlacesService } from './places.service';
+import { SearchHistoryService } from './services/search-history.service';
 import { SearchPlacesDto } from './dto/search-places.dto';
 import { CreatePlaceDto } from './dto/create-place.dto';
 import { NearbySearchDto } from './dto/nearby-search.dto';
 import { BoundsSearchDto } from './dto/bounds-search.dto';
+import { GetSearchHistoryDto, SearchHistoryResponseDto } from './dto/search-history.dto';
 import { Place } from '../../entities/place.entity';
+import { Public } from '../../common';
 
 @ApiTags('places')
 @Controller('api/v1/places')
 export class PlacesController {
-  constructor(private readonly placesService: PlacesService) {}
+  constructor(
+    private readonly placesService: PlacesService,
+    private readonly searchHistoryService: SearchHistoryService,
+  ) {}
 
   @Get('search')
+  @Public()
   @ApiOperation({ summary: '장소 검색 (하이브리드)' })
   @ApiResponse({
     status: 200,
     description: '검색 결과',
     type: [Place],
   })
-  async searchPlaces(@Query() searchDto: SearchPlacesDto): Promise<Place[]> {
-    return this.placesService.searchPlaces(searchDto);
+  async searchPlaces(
+    @Query() searchDto: SearchPlacesDto,
+    @Req() req: Request,
+  ): Promise<Place[]> {
+    const results = await this.placesService.searchPlaces(searchDto);
+    
+    // 로그인된 사용자인 경우 검색 기록 저장
+    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    if (userId && searchDto.query) {
+      this.searchHistoryService.saveSearch({
+        userId,
+        query: searchDto.query,
+        category: searchDto.category,
+        latitude: searchDto.lat,
+        longitude: searchDto.lng,
+        resultCount: results.length,
+      }).catch(err => {
+        // 검색 기록 저장 실패해도 검색 결과는 반환
+        console.error('Failed to save search history:', err);
+      });
+    }
+    
+    return results;
   }
 
   @Get('nearby')
+  @Public()
   @ApiOperation({ summary: '주변 장소 검색' })
   @ApiResponse({
     status: 200,
@@ -45,6 +77,7 @@ export class PlacesController {
   }
 
   @Get('bounds')
+  @Public()
   @ApiOperation({ summary: '지도 영역 기반 장소 검색' })
   @ApiResponse({
     status: 200,
@@ -56,6 +89,7 @@ export class PlacesController {
   }
 
   @Get('popular')
+  @Public()
   @ApiOperation({ summary: '인기 장소 조회' })
   @ApiResponse({
     status: 200,
@@ -71,6 +105,7 @@ export class PlacesController {
   // 주의: 'detail/by-location'은 ':id' 보다 먼저 정의되어야 함
   // NestJS는 라우트를 순서대로 매칭하므로, 구체적인 경로가 먼저 와야 함
   @Get('detail/by-location')
+  @Public()
   @ApiOperation({ summary: '장소 상세 정보 (이름과 좌표로 조회)' })
   @ApiResponse({
     status: 200,
@@ -86,6 +121,7 @@ export class PlacesController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: '장소 상세 정보 (ID로 조회)' })
   @ApiResponse({
     status: 200,
@@ -97,6 +133,7 @@ export class PlacesController {
   }
 
   @Post()
+  @Public()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: '장소 등록' })
   @ApiResponse({
@@ -109,6 +146,7 @@ export class PlacesController {
   }
 
   @Put(':id/favorite')
+  @ApiBearerAuth()
   @ApiOperation({ summary: '즐겨찾기 토글' })
   @ApiResponse({
     status: 200,
@@ -117,5 +155,83 @@ export class PlacesController {
   })
   async toggleFavorite(@Param('id') id: string): Promise<Place> {
     return this.placesService.toggleFavorite(id);
+  }
+
+  // ===============================
+  // 검색 기록 API
+  // ===============================
+
+  @Get('history/recent')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '최근 검색 기록 조회' })
+  @ApiResponse({
+    status: 200,
+    description: '최근 검색 기록 목록',
+    type: [SearchHistoryResponseDto],
+  })
+  async getRecentSearchHistory(
+    @Req() req: Request,
+    @Query() dto: GetSearchHistoryDto,
+  ): Promise<SearchHistoryResponseDto[]> {
+    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    if (!userId) {
+      return [];
+    }
+    return this.searchHistoryService.getRecentSearches(userId, dto.limit);
+  }
+
+  @Get('history/last')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '마지막 검색 기록 조회' })
+  @ApiResponse({
+    status: 200,
+    description: '마지막 검색 기록',
+    type: SearchHistoryResponseDto,
+  })
+  async getLastSearchHistory(
+    @Req() req: Request,
+  ): Promise<SearchHistoryResponseDto | null> {
+    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    if (!userId) {
+      return null;
+    }
+    return this.searchHistoryService.getLastSearch(userId);
+  }
+
+  @Delete('history/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '특정 검색 기록 삭제' })
+  @ApiResponse({
+    status: 200,
+    description: '삭제 결과',
+  })
+  async deleteSearchHistory(
+    @Req() req: Request,
+    @Param('id') searchId: string,
+  ): Promise<{ deleted: boolean }> {
+    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    if (!userId) {
+      return { deleted: false };
+    }
+    const deleted = await this.searchHistoryService.deleteSearch(userId, searchId);
+    return { deleted };
+  }
+
+  @Delete('history')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '모든 검색 기록 삭제' })
+  @ApiResponse({
+    status: 200,
+    description: '삭제된 개수',
+  })
+  async clearSearchHistory(
+    @Req() req: Request,
+  ): Promise<{ deletedCount: number }> {
+    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    if (!userId) {
+      return { deletedCount: 0 };
+    }
+    const deletedCount = await this.searchHistoryService.clearHistory(userId);
+    return { deletedCount };
   }
 }

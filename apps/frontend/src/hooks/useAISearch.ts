@@ -37,7 +37,6 @@ export const useAISearch = () => {
       }
       
       setError(errorMessage);
-      console.error('AI 검색 오류:', err);
       throw new Error(errorMessage);
     } finally {
       setIsLoading(false);

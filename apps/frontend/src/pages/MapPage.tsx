@@ -1,11 +1,19 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { NaverMap } from '@/components/map/NaverMap';
 import { PlaceList } from '@/components/places/PlaceList';
 import { PlaceDetail } from '@/components/places/PlaceDetail';
 import { ChatInterface, ChatMessage, createInitialMessages } from '@/components/ai/ChatInterface';
+import { UserMenu } from '@/components/auth';
 import { useIntegratedSearch } from '@/hooks/useIntegratedSearch';
+import { useAuthStore } from '@/store/authStore';
 import { Place } from '@wonderland/shared';
-import { searchPlacesByBoundsAPI, getPlaceDetailByLocationAPI, getPlaceDetailAPI } from '@/api/places.api';
+import { 
+  searchPlacesByBoundsAPI, 
+  getPlaceDetailByLocationAPI, 
+  getPlaceDetailAPI,
+  getLastSearchHistoryAPI,
+  SearchHistoryItem,
+} from '@/api/places.api';
 
 export const MapPage: React.FC = () => {
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
@@ -29,11 +37,39 @@ export const MapPage: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   
+  // 마지막 검색 기록 표시
+  const [lastSearch, setLastSearch] = useState<SearchHistoryItem | null>(null);
+  const [showLastSearchBanner, setShowLastSearchBanner] = useState(false);
+  
+  // Auth 상태
+  const { isAuthenticated, user } = useAuthStore();
+  const prevAuthRef = useRef(isAuthenticated);
+  
   const { 
     search, 
     places, 
     isLoading, 
   } = useIntegratedSearch();
+  
+  // 로그인 시 마지막 검색 기록 불러오기
+  useEffect(() => {
+    // 로그인 상태가 false -> true로 변경된 경우에만 실행
+    if (isAuthenticated && !prevAuthRef.current) {
+      getLastSearchHistoryAPI()
+        .then((history) => {
+          if (history) {
+            setLastSearch(history);
+            setShowLastSearchBanner(true);
+            // 5초 후 자동으로 배너 숨기기
+            setTimeout(() => setShowLastSearchBanner(false), 8000);
+          }
+        })
+        .catch(() => {
+          // 검색 기록 조회 실패 (무시)
+        });
+    }
+    prevAuthRef.current = isAuthenticated;
+  }, [isAuthenticated]);
 
   // 검색 실행 (현재 지도 위치 기반)
   const handleSearch = useCallback(async (query: string, category?: string | null) => {
@@ -49,8 +85,8 @@ export const MapPage: React.FC = () => {
         lng: mapCenter.lng,
         radius: 5000, // 5km 반경
       });
-    } catch (err) {
-      console.error('검색 실패:', err);
+    } catch {
+      // 검색 실패 시 조용히 실패 (hook에서 error 상태 관리)
     }
   }, [search, mapCenter]);
 
@@ -87,8 +123,8 @@ export const MapPage: React.FC = () => {
       }
       
       setSelectedPlace(detailPlace);
-    } catch (error) {
-      console.error('장소 상세 정보 조회 실패:', error);
+    } catch {
+      // 상세 정보 조회 실패 시 기본 정보 표시
       setSelectedPlace(place);
     } finally {
       setIsLoadingDetail(false);
@@ -114,16 +150,13 @@ export const MapPage: React.FC = () => {
     setIsAutoSearching(true);
     try {
       const results = await searchPlacesByBoundsAPI(
-        bounds.south,
-        bounds.north,
-        bounds.west,
-        bounds.east,
+        bounds,
         selectedCategory || undefined,
         50
       );
       setAutoSearchPlaces(results);
-    } catch (error) {
-      console.error('자동 검색 실패:', error);
+    } catch {
+      // 자동 검색 실패 시 무시
     } finally {
       setIsAutoSearching(false);
     }
@@ -174,13 +207,53 @@ export const MapPage: React.FC = () => {
         className="w-full h-full"
       />
 
+      {/* 마지막 검색 기록 배너 */}
+      {showLastSearchBanner && lastSearch && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 w-full max-w-xl px-4 z-40 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl shadow-lg px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3 text-white">
+              <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-xs text-white/80">환영합니다, {user?.name || '회원'}님! 마지막 검색:</p>
+                <p className="font-medium">"{lastSearch.query}"</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setSearchQuery(lastSearch.query);
+                  handleSearch(lastSearch.query, lastSearch.category);
+                  setShowLastSearchBanner(false);
+                }}
+                className="px-3 py-1.5 bg-white text-blue-600 text-sm font-medium rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                다시 검색
+              </button>
+              <button
+                onClick={() => setShowLastSearchBanner(false)}
+                className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+              >
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 상단 검색바 */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 w-full max-w-xl px-4 z-30">
+      <div className={`absolute ${showLastSearchBanner && lastSearch ? 'top-20' : 'top-4'} left-1/2 -translate-x-1/2 w-full max-w-xl px-4 z-30 transition-all duration-300`}>
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
           {/* 메인 검색바 */}
           <div className="flex items-center">
-            <div className="flex-1 flex items-center px-4">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {/* 검색 입력 영역 */}
+            <div className="flex-1 flex items-center px-4 py-1">
+              <svg className="w-5 h-5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
@@ -193,36 +266,32 @@ export const MapPage: React.FC = () => {
                   }
                 }}
                 placeholder="장소, 주소 검색"
-                className="flex-1 px-3 py-3.5 text-gray-900 placeholder-gray-400 focus:outline-none"
+                className="flex-1 px-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none"
               />
               {searchQuery && (
                 <button
                   onClick={clearSearch}
-                  className="p-1 hover:bg-gray-100 rounded-full"
+                  className="p-1.5 hover:bg-gray-100 rounded-full transition-colors mr-1"
                 >
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               )}
+              {/* 검색 버튼 (input 내부) */}
+              <button
+                onClick={() => handleSearch(searchQuery, selectedCategory)}
+                disabled={!searchQuery.trim()}
+                className="px-3 py-1.5 bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                검색
+              </button>
             </div>
             
-            {/* 검색 버튼 */}
-            <button
-              onClick={() => handleSearch(searchQuery, selectedCategory)}
-              disabled={!searchQuery.trim()}
-              className="px-4 py-3.5 bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-all flex items-center gap-2 border-l disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <span className="hidden sm:inline">검색</span>
-            </button>
-            
-            {/* AI 추천 버튼 */}
+            {/* AI 추천 버튼 (오른쪽 끝) */}
             <button
               onClick={() => setShowAIChat(true)}
-              className="px-4 py-3.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium hover:from-purple-600 hover:to-pink-600 transition-all flex items-center gap-2"
+              className="px-4 py-3.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-medium hover:from-blue-600 hover:to-indigo-600 transition-all flex items-center gap-2"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 3L13.5 8.5L19 10L13.5 11.5L12 17L10.5 11.5L5 10L10.5 8.5L12 3Z" fill="currentColor" />
@@ -283,15 +352,21 @@ export const MapPage: React.FC = () => {
         </div>
       )}
 
-      {/* 지도 컨트롤 (우측 상단) */}
-      <div className="absolute top-24 right-4 flex flex-col gap-2 z-20">
-        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+      {/* 사용자 메뉴 (우측 상단) */}
+      <div className="absolute top-4 right-4 z-30">
+        <UserMenu />
+      </div>
+
+      {/* 지도 컨트롤 (우측 하단) - 줌 + 현재위치 */}
+      <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-20">
+        {/* 줌 컨트롤 */}
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <button 
             onClick={() => {
               const event = new CustomEvent('zoomIn');
               window.dispatchEvent(event);
             }}
-            className="p-3 hover:bg-gray-100 transition-colors border-b"
+            className="p-3 hover:bg-gray-100 transition-colors border-b flex items-center justify-center"
             title="확대"
           >
             <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -303,7 +378,7 @@ export const MapPage: React.FC = () => {
               const event = new CustomEvent('zoomOut');
               window.dispatchEvent(event);
             }}
-            className="p-3 hover:bg-gray-100 transition-colors"
+            className="p-3 hover:bg-gray-100 transition-colors flex items-center justify-center"
             title="축소"
           >
             <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -311,21 +386,21 @@ export const MapPage: React.FC = () => {
             </svg>
           </button>
         </div>
-      </div>
 
-      {/* 현재 위치 버튼 (우측 하단) */}
-      <button
-        onClick={() => {
-          const event = new CustomEvent('moveToCurrentLocation');
-          window.dispatchEvent(event);
-        }}
-        className="absolute bottom-6 right-6 bg-white p-3.5 rounded-full shadow-lg hover:shadow-xl transition-all group z-20"
-        title="현재 위치"
-      >
-        <svg className="w-6 h-6 text-blue-500 group-hover:text-blue-600" fill="currentColor" viewBox="0 0 24 24">
-          <path fillRule="evenodd" d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975 16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-1.99 3.963-4.98 3.963-8.827a8.25 8.25 0 00-16.5 0c0 3.846 2.02 6.837 3.963 8.827a19.58 19.58 0 002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-        </svg>
-      </button>
+        {/* 현재 위치 버튼 */}
+        <button
+          onClick={() => {
+            const event = new CustomEvent('moveToCurrentLocation');
+            window.dispatchEvent(event);
+          }}
+          className="bg-white p-3 rounded-xl shadow-lg hover:shadow-xl transition-all group flex items-center justify-center"
+          title="현재 위치"
+        >
+          <svg className="w-5 h-5 text-blue-500 group-hover:text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+            <path fillRule="evenodd" d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975 16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-1.99 3.963-4.98 3.963-8.827a8.25 8.25 0 00-16.5 0c0 3.846 2.02 6.837 3.963 8.827a19.58 19.58 0 002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </div>
 
       {/* 로딩 인디케이터 */}
       {(isLoading || isAutoSearching) && (

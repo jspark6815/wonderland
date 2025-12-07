@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Place } from '@wonderland/shared';
-import { searchPlacesAPI } from '@/api/places.api';
+import { searchPlacesAPI, getNearbyPlacesAPI } from '@/api/places.api';
 import { aiSearchAPI } from '@/api/ai.api';
 
 interface IntegratedSearchResult {
@@ -54,8 +54,8 @@ export const useIntegratedSearch = () => {
             location: aiResult.location,
           };
         }
-      } catch (aiError) {
-        console.log('AI 해석 실패, 일반 검색으로 진행:', aiError);
+      } catch {
+        // AI 해석 실패 시 일반 검색으로 진행 (무시)
       }
 
       // 2. 장소 검색 (카테고리 + 위치 필터 적용)
@@ -103,15 +103,8 @@ export const useIntegratedSearch = () => {
     setError(null);
 
     try {
-      const response = await fetch(
-        `/api/v1/places/nearby?lat=${lat}&lng=${lng}&radius=${radius}`
-      );
+      const places = await getNearbyPlacesAPI(lat, lng, radius);
       
-      if (!response.ok) {
-        throw new Error('주변 검색 실패');
-      }
-
-      const places = await response.json();
       setSearchResult({
         places,
         isFromAI: false,

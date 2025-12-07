@@ -28,7 +28,7 @@ export class PlacesService {
 
     // 1. 캐시 확인
     const cacheKey = this.cacheService.generateKey('search', searchDto);
-    const cached = await this.cacheService.get(cacheKey);
+    const cached = await this.cacheService.get<Place[]>(cacheKey);
     if (cached) {
       this.logger.debug('Returning cached search results');
       return cached;
@@ -155,7 +155,7 @@ export class PlacesService {
 
     // 캐시 확인
     const cacheKey = this.cacheService.generateKey('nearby', nearbyDto);
-    const cached = await this.cacheService.get(cacheKey);
+    const cached = await this.cacheService.get<Place[]>(cacheKey);
     if (cached) {
       this.logger.debug('Returning cached nearby results');
       return cached;
@@ -235,7 +235,7 @@ export class PlacesService {
 
     // 캐시 확인 (bounds 기반 캐시 키)
     const cacheKey = this.cacheService.generateKey('bounds', boundsDto);
-    const cached = await this.cacheService.get(cacheKey);
+    const cached = await this.cacheService.get<Place[]>(cacheKey);
     if (cached) {
       this.logger.debug('Returning cached bounds results');
       return cached;

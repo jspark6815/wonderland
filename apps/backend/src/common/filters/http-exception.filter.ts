@@ -44,8 +44,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
         details = responseObj.details || null;
       }
     } else if (exception instanceof Error) {
-      message = exception.message;
-      error = exception.name;
+      // 프로덕션 환경에서는 일반 Error의 상세 메시지를 숨김
+      if (process.env.NODE_ENV === 'production') {
+        message = '서버 내부 오류가 발생했습니다.';
+        error = 'Internal Server Error';
+      } else {
+        message = exception.message;
+        error = exception.name;
+      }
     }
 
     // 에러 응답 객체

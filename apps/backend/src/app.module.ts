@@ -1,62 +1,79 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { APP_FILTER, APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AiModule } from './modules/ai/ai.module';
 import { PlacesModule } from './modules/places/places.module';
 import { LogsModule } from './modules/logs/logs.module';
 import { HttpExceptionFilter } from './common/filters';
 import { LoggingInterceptor } from './common/interceptors';
-import { CustomThrottlerGuard } from './common/guards';
+import { CustomThrottlerGuard, AuthGuard } from './common/guards';
+import { TrimPipe } from './common/pipes';
+import {
+  databaseConfig,
+  throttleConfig,
+  corsConfig,
+  aiConfig,
+  jwtConfig,
+} from './config';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
+    // 설정 모듈 (config 파일들 로드)
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', '../.env', '../../.env'],
+      load: [databaseConfig, throttleConfig, corsConfig, aiConfig, jwtConfig],
     }),
-    // Rate Limiting 설정
+    // Rate Limiting 설정 (throttle.config.ts 활용)
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        throttlers: [
-          {
-            name: 'short',
-            ttl: 1000, // 1초
-            limit: config.get('THROTTLE_SHORT_LIMIT', 10), // 초당 10회
-          },
-          {
-            name: 'medium',
-            ttl: 10000, // 10초
-            limit: config.get('THROTTLE_MEDIUM_LIMIT', 50), // 10초당 50회
-          },
-          {
-            name: 'long',
-            ttl: 60000, // 1분
-            limit: config.get('THROTTLE_LONG_LIMIT', 200), // 분당 200회
-          },
-        ],
-      }),
+      useFactory: (config: ConfigService) => {
+        const throttle = config.get('throttle');
+        return {
+          throttlers: [
+            throttle?.short || { name: 'short', ttl: 1000, limit: 10 },
+            throttle?.medium || { name: 'medium', ttl: 10000, limit: 50 },
+            throttle?.long || { name: 'long', ttl: 60000, limit: 200 },
+          ],
+        };
+      },
     }),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.DATABASE_HOST || 'localhost',
-      port: parseInt(process.env.DATABASE_PORT || '5432', 10),
-      username: process.env.DATABASE_USER || 'postgres',
-      password: process.env.DATABASE_PASSWORD || 'postgres',
-      database: process.env.DATABASE_NAME || 'wonderland',
-      autoLoadEntities: true,
-      // 개발 환경에서 테이블 자동 생성 (NODE_ENV가 없거나 development일 때)
-      synchronize: process.env.NODE_ENV !== 'production',
+    // TypeORM 설정 (database.config.ts 활용)
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const db = config.get('database');
+        return {
+          type: 'postgres' as const,
+          host: db?.host || 'localhost',
+          port: db?.port || 5432,
+          username: db?.username || 'postgres',
+          password: db?.password || 'postgres',
+          database: db?.database || 'wonderland',
+          autoLoadEntities: db?.autoLoadEntities ?? true,
+          synchronize: db?.synchronize ?? (process.env.NODE_ENV !== 'production'),
+          logging: db?.logging ?? false,
+        };
+      },
     }),
     // LogsModule은 글로벌 모듈로 설정되어 있어 LoggingInterceptor에서 사용 가능
     LogsModule,
+    // 인증 모듈 (JWT 기반)
+    AuthModule,
     AiModule,
     PlacesModule,
   ],
   providers: [
+    // 글로벌 Trim 파이프 (문자열 앞뒤 공백 제거)
+    {
+      provide: APP_PIPE,
+      useClass: TrimPipe,
+    },
     // 글로벌 에러 필터
     {
       provide: APP_FILTER,
@@ -66,6 +83,12 @@ import { CustomThrottlerGuard } from './common/guards';
     {
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
+    },
+    // 글로벌 인증 Guard (@Public() 데코레이터 처리)
+    // AUTH_ENABLED=true 환경변수로 활성화
+    {
+      provide: APP_GUARD,
+      useClass: AuthGuard,
     },
     // 글로벌 Rate Limiting Guard
     {
