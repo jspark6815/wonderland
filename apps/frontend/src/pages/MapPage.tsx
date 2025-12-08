@@ -21,10 +21,11 @@ export const MapPage: React.FC = () => {
   const [showSidebar, setShowSidebar] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
-  const [isAutoSearching, setIsAutoSearching] = useState(false);
+  // isAutoSearching 제거 - isSearching으로 통합
   const [autoSearchPlaces, setAutoSearchPlaces] = useState<Place[]>([]);
   const [searchResults, setSearchResults] = useState<Place[]>([]); // 검색 결과 별도 관리
   const [isSearching, setIsSearching] = useState(false);
+  const [showResearchButton, setShowResearchButton] = useState(false); // 재검색 버튼 표시 여부
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
@@ -84,6 +85,7 @@ export const MapPage: React.FC = () => {
     setSearchQuery(query);
     setShowSidebar(true);
     setIsSearching(true);
+    setShowResearchButton(false); // 검색하면 재검색 버튼 숨기기
     
     try {
       let results: Place[] = [];
@@ -166,43 +168,69 @@ export const MapPage: React.FC = () => {
     }
   }, []);
 
-  // 지도 영역 변경 시 자동 검색 + 지도 중심/bounds 업데이트
+  // 지도 영역 변경 시 bounds 업데이트 + 재검색 버튼 표시
   const handleBoundsChange = useCallback(async (bounds: {
     south: number;
     north: number;
     west: number;
     east: number;
   }) => {
-    // 지도 중심 좌표 및 bounds 업데이트 (다음 검색에 사용)
+    // 지도 중심 좌표 및 bounds 업데이트
     const newCenter = {
       lat: (bounds.south + bounds.north) / 2,
       lng: (bounds.west + bounds.east) / 2,
     };
     setMapCenter(newCenter);
-    setMapBounds(bounds); // bounds 저장
+    setMapBounds(bounds);
     
-    if (searchQuery.trim()) return;
-
-    setIsAutoSearching(true);
-    try {
-      const results = await searchPlacesByBoundsAPI(
-        bounds,
-        selectedCategory || undefined,
-        50
-      );
-      setAutoSearchPlaces(results);
-    } catch {
-      // 자동 검색 실패 시 무시
-    } finally {
-      setIsAutoSearching(false);
+    // 검색어 또는 카테고리 필터가 있으면 "이 지역에서 재검색" 버튼 표시
+    if (searchQuery.trim() || selectedCategory) {
+      setShowResearchButton(true);
     }
   }, [searchQuery, selectedCategory]);
+
+  // 이 지역에서 재검색
+  const handleResearch = useCallback(async () => {
+    if (!mapBounds) return;
+    
+    setShowResearchButton(false);
+    setIsSearching(true);
+    
+    try {
+      const boundsResults = await searchPlacesByBoundsAPI(
+        mapBounds,
+        selectedCategory || undefined,
+        100
+      );
+      
+      // 검색어가 있으면 키워드로 필터링
+      if (searchQuery.trim()) {
+        const queryLower = searchQuery.toLowerCase();
+        const filtered = boundsResults.filter(place => 
+          place.name?.toLowerCase().includes(queryLower) ||
+          place.address?.toLowerCase().includes(queryLower) ||
+          place.category?.toLowerCase().includes(queryLower) ||
+          place.tags?.some(tag => tag.toLowerCase().includes(queryLower))
+        );
+        setSearchResults(filtered);
+        setShowSidebar(filtered.length > 0);
+      } else {
+        // 카테고리 필터만 있으면 전체 결과 표시
+        setAutoSearchPlaces(boundsResults);
+      }
+    } catch {
+      // 검색 실패 시 무시
+    } finally {
+      setIsSearching(false);
+    }
+  }, [mapBounds, searchQuery, selectedCategory]);
 
   // 검색 초기화
   const clearSearch = useCallback(() => {
     setSearchQuery('');
     setSearchResults([]);
     setShowSidebar(false);
+    setShowResearchButton(false);
   }, []);
 
   // 카테고리 변경 시 재검색
@@ -234,7 +262,8 @@ export const MapPage: React.FC = () => {
         places={displayPlaces}
         onPlaceClick={handlePlaceSelect}
         onBoundsChange={handleBoundsChange}
-        enableAutoSearch={!searchQuery.trim()}
+        enableAutoSearch={!searchQuery.trim() && !selectedCategory}
+        fitBoundsOnSearch={false} // 검색해도 지도 이동 안함 (사용자가 보고 있는 영역 유지)
         className="w-full h-full"
       />
 
@@ -435,8 +464,23 @@ export const MapPage: React.FC = () => {
         </button>
       </div>
 
+      {/* 이 지역에서 재검색 버튼 */}
+      {showResearchButton && !isSearching && (
+        <div className="absolute top-40 left-1/2 -translate-x-1/2 z-30">
+          <button
+            onClick={handleResearch}
+            className="bg-white px-4 py-2.5 rounded-full shadow-lg hover:shadow-xl transition-all flex items-center gap-2 border border-gray-200 hover:border-blue-300"
+          >
+            <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span className="text-sm font-medium text-gray-700">이 지역에서 재검색</span>
+          </button>
+        </div>
+      )}
+
       {/* 로딩 인디케이터 */}
-      {(isSearching || isAutoSearching) && (
+      {isSearching && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg z-20 flex items-center gap-2">
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
           <span className="text-sm text-gray-600">검색 중...</span>

@@ -98,6 +98,7 @@ interface NaverMapProps {
     east: number;
   }) => void;
   enableAutoSearch?: boolean;
+  fitBoundsOnSearch?: boolean; // 검색 결과에 맞게 지도 범위 조정 여부
 }
 
 export const NaverMap: React.FC<NaverMapProps> = ({
@@ -106,12 +107,14 @@ export const NaverMap: React.FC<NaverMapProps> = ({
   onPlaceClick,
   onBoundsChange,
   enableAutoSearch = false,
+  fitBoundsOnSearch = false,
 }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const naverMapRef = useRef<naver.maps.Map | null>(null);
   const markersRef = useRef<naver.maps.Marker[]>([]);
   const currentLocationMarkerRef = useRef<naver.maps.Marker | null>(null);
   const clustererRef = useRef<any>(null);
+  const prevPlacesLengthRef = useRef<number>(0); // 이전 places 개수 (fitBounds 판단용)
   const boundsChangeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
@@ -411,8 +414,12 @@ export const NaverMap: React.FC<NaverMapProps> = ({
       });
     }
 
-    // 모든 마커가 보이도록 지도 범위 조정 (검색 결과가 있을 때만)
-    if (places.length > 0 && !enableAutoSearch) {
+    // 지도 범위 조정: 새로운 검색 결과가 있고, fitBoundsOnSearch가 true일 때만
+    // (places가 0 → N으로 변경되었을 때만 fitBounds 실행)
+    const isNewSearch = prevPlacesLengthRef.current === 0 && places.length > 0;
+    prevPlacesLengthRef.current = places.length;
+
+    if (isNewSearch && fitBoundsOnSearch && places.length > 0) {
       const firstPlace = places[0];
       const firstLat = typeof firstPlace.latitude === 'string' 
         ? parseFloat(firstPlace.latitude) 
@@ -449,7 +456,7 @@ export const NaverMap: React.FC<NaverMapProps> = ({
         });
       }
     }
-  }, [places, isMapLoaded, onPlaceClick, useClustering, enableAutoSearch]);
+  }, [places, isMapLoaded, onPlaceClick, useClustering, fitBoundsOnSearch]);
 
   // 현재 위치로 이동
   const moveToCurrentLocation = useCallback(() => {
