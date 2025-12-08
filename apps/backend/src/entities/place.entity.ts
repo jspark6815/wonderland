@@ -135,6 +135,63 @@ export class Place {
   @Column('simple-array', { nullable: true })
   tags?: string[];
 
+  // ============ AI 검색 최적화용 컬럼 ============
+
+  @ApiPropertyOptional({ 
+    description: '시설/편의시설 목록',
+    type: [String],
+    example: ['주차', 'WiFi', '단체석', '개인룸', '예약가능', '배달가능']
+  })
+  @Column('simple-array', { nullable: true })
+  features?: string[];
+
+  @ApiPropertyOptional({ 
+    description: '분위기/특징',
+    type: [String],
+    example: ['조용한', '로맨틱', '가족모임', '비즈니스', '데이트', '혼밥가능']
+  })
+  @Column('simple-array', { nullable: true })
+  atmosphere?: string[];
+
+  @ApiPropertyOptional({ 
+    description: 'AI 검색용 키워드 (자동 생성)',
+    type: [String],
+    example: ['주차되는', '애견동반', '24시간', '야경맛집']
+  })
+  @Column('simple-array', { nullable: true })
+  keywords?: string[];
+
+  @ApiPropertyOptional({ 
+    description: '메뉴/상품 정보',
+    example: [{ name: '아메리카노', price: 4500 }, { name: '라떼', price: 5000 }]
+  })
+  @Column('simple-json', { nullable: true })
+  menu?: Array<{ name: string; price?: number; description?: string }>;
+
+  @ApiPropertyOptional({ 
+    description: '추천 대상',
+    type: [String],
+    example: ['연인', '가족', '친구', '혼자', '비즈니스']
+  })
+  @Column('simple-array', { nullable: true })
+  recommendFor?: string[];
+
+  @ApiPropertyOptional({ 
+    description: '특별 정보',
+    example: { parking: '무료주차 30대', petFriendly: true, reservation: '네이버예약' }
+  })
+  @Column('simple-json', { nullable: true })
+  specialInfo?: {
+    parking?: string;
+    petFriendly?: boolean;
+    reservation?: string;
+    delivery?: boolean;
+    takeout?: boolean;
+    wifi?: boolean;
+    smoking?: string;
+    kidsZone?: boolean;
+  };
+
   @ApiPropertyOptional({ description: '거리 (미터)', example: 500 })
   @Column({ nullable: true })
   distance?: number; // 계산된 거리 (미터)

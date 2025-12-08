@@ -9,16 +9,28 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AiService, InterpretedQuery } from './ai.service';
+import { PlacesService } from '../places/places.service';
 import { RecommendPlaceDto } from './dto/recommend-place.dto';
 import { SummarizeReviewsDto } from './dto/summarize-reviews.dto';
 import { InterpretQueryDto } from './dto/interpret-query.dto';
 import { ComparePlacesDto } from './dto/compare-places.dto';
 import { Public } from '../../common/decorators';
+import { Place } from '../../entities/place.entity';
+
+export interface AISearchResponse {
+  interpretation: InterpretedQuery;
+  places: Place[];
+  source: 'DB' | 'EXTERNAL';
+  totalCount: number;
+}
 
 @ApiTags('ai')
 @Controller('api/v1/ai')
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly placesService: PlacesService,
+  ) {}
 
   @Post('recommend')
   @ApiOperation({ summary: 'AI 기반 장소 추천' })
@@ -64,6 +76,59 @@ export class AiController {
   @ApiResponse({ status: HttpStatus.OK, description: '해석 성공' })
   async interpretQuery(@Body() dto: InterpretQueryDto): Promise<InterpretedQuery> {
     return this.aiService.interpretQuery(dto);
+  }
+
+  @Post('search')
+  @ApiOperation({ summary: 'AI 맞춤 검색 - 자연어 해석 후 DB에서 검색' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'AI 맞춤 검색 결과' })
+  async aiSearch(
+    @Body() dto: InterpretQueryDto & { lat?: number; lng?: number; radius?: number; limit?: number },
+  ): Promise<AISearchResponse> {
+    // 1. AI로 자연어 해석
+    const interpretation = await this.aiService.interpretQuery(dto);
+
+    // 2. 해석 결과로 DB 검색
+    let places = await this.placesService.searchByAICriteria({
+      keywords: interpretation.keywords,
+      categories: interpretation.categories,
+      atmosphere: interpretation.atmosphere,
+      features: interpretation.specialRequests,
+      location: interpretation.location,
+      lat: dto.lat,
+      lng: dto.lng,
+      radius: dto.radius || 5000,
+      limit: dto.limit || 20,
+    });
+
+    let source: 'DB' | 'EXTERNAL' = 'DB';
+
+    // 3. DB 결과가 부족하면 외부 검색 (폴백)
+    if (places.length < 5) {
+      const externalResults = await this.placesService.searchPlaces({
+        query: interpretation.searchQuery,
+        lat: dto.lat,
+        lng: dto.lng,
+        radius: dto.radius || 5000,
+        limit: dto.limit || 20,
+        useExternal: true,
+      });
+      
+      // DB 결과와 외부 결과 병합 (중복 제거)
+      const existingIds = new Set(places.map(p => p.id));
+      const newPlaces = externalResults.filter(p => !existingIds.has(p.id));
+      places = [...places, ...newPlaces].slice(0, dto.limit || 20);
+      
+      if (newPlaces.length > 0) {
+        source = 'EXTERNAL';
+      }
+    }
+
+    return {
+      interpretation,
+      places,
+      source,
+      totalCount: places.length,
+    };
   }
 
   @Post('compare')

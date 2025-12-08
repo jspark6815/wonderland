@@ -276,6 +276,156 @@ export class PlacesService {
   }
 
   /**
+   * AI 맞춤 검색: DB에서 키워드, 분위기, 시설 등으로 검색
+   * 네이버 API가 아닌 내부 DB에서 직접 검색
+   */
+  async searchByAICriteria(criteria: {
+    keywords?: string[];
+    categories?: string[];
+    atmosphere?: string[];
+    features?: string[];
+    recommendFor?: string[];
+    location?: string;
+    lat?: number;
+    lng?: number;
+    radius?: number;
+    limit?: number;
+  }): Promise<Place[]> {
+    const { 
+      keywords = [], 
+      categories = [], 
+      atmosphere = [], 
+      features = [],
+      recommendFor = [],
+      location,
+      lat, 
+      lng, 
+      radius = 5000, 
+      limit = 20 
+    } = criteria;
+
+    this.logger.debug(`AI Search criteria:`, criteria);
+
+    const qb = this.placeRepository.createQueryBuilder('place');
+
+    // 1. 위치 기반 필터링 (선택적)
+    if (lat && lng) {
+      qb.addSelect(
+        `ST_DistanceSphere(
+          place.location,
+          ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
+        )`,
+        'distance'
+      )
+      .where(
+        `ST_DWithin(
+          place.location,
+          ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+          :radius
+        )`,
+        { lat, lng, radius }
+      );
+    }
+
+    // 2. 카테고리 필터
+    if (categories.length > 0) {
+      const categoryEnums = categories
+        .map(c => this.mapCategory(c))
+        .filter(c => c !== PlaceCategory.OTHER);
+      
+      if (categoryEnums.length > 0) {
+        qb.andWhere('place.category IN (:...categories)', { categories: categoryEnums });
+      }
+    }
+
+    // 3. 키워드 검색 (이름, 설명, 태그, 키워드 필드에서)
+    if (keywords.length > 0) {
+      const keywordConditions = keywords.map((_, i) => `(
+        LOWER(place.name) LIKE LOWER(:kw${i}) OR
+        LOWER(COALESCE(place.description, '')) LIKE LOWER(:kw${i}) OR
+        LOWER(COALESCE(place.tags, '')) LIKE LOWER(:kw${i}) OR
+        LOWER(COALESCE(place.keywords, '')) LIKE LOWER(:kw${i}) OR
+        LOWER(COALESCE(place.features, '')) LIKE LOWER(:kw${i}) OR
+        LOWER(COALESCE(place.atmosphere, '')) LIKE LOWER(:kw${i})
+      )`).join(' OR ');
+      
+      const keywordParams: Record<string, string> = {};
+      keywords.forEach((kw, i) => {
+        keywordParams[`kw${i}`] = `%${kw}%`;
+      });
+      
+      qb.andWhere(`(${keywordConditions})`, keywordParams);
+    }
+
+    // 4. 분위기 필터
+    if (atmosphere.length > 0) {
+      const atmosphereConditions = atmosphere.map((_, i) => 
+        `LOWER(COALESCE(place.atmosphere, '')) LIKE LOWER(:atm${i})`
+      ).join(' OR ');
+      
+      const atmosphereParams: Record<string, string> = {};
+      atmosphere.forEach((atm, i) => {
+        atmosphereParams[`atm${i}`] = `%${atm}%`;
+      });
+      
+      qb.andWhere(`(${atmosphereConditions})`, atmosphereParams);
+    }
+
+    // 5. 시설/특징 필터
+    if (features.length > 0) {
+      const featureConditions = features.map((_, i) => 
+        `LOWER(COALESCE(place.features, '')) LIKE LOWER(:feat${i})`
+      ).join(' OR ');
+      
+      const featureParams: Record<string, string> = {};
+      features.forEach((feat, i) => {
+        featureParams[`feat${i}`] = `%${feat}%`;
+      });
+      
+      qb.andWhere(`(${featureConditions})`, featureParams);
+    }
+
+    // 6. 추천 대상 필터
+    if (recommendFor.length > 0) {
+      const recConditions = recommendFor.map((_, i) => 
+        `LOWER(COALESCE(place.recommendFor, '')) LIKE LOWER(:rec${i})`
+      ).join(' OR ');
+      
+      const recParams: Record<string, string> = {};
+      recommendFor.forEach((rec, i) => {
+        recParams[`rec${i}`] = `%${rec}%`;
+      });
+      
+      qb.andWhere(`(${recConditions})`, recParams);
+    }
+
+    // 7. 지역명 필터 (주소에서)
+    if (location) {
+      qb.andWhere('LOWER(place.address) LIKE LOWER(:location)', { location: `%${location}%` });
+    }
+
+    // 정렬: 거리 또는 평점
+    if (lat && lng) {
+      qb.orderBy('distance', 'ASC');
+    } else {
+      qb.orderBy('place.rating', 'DESC', 'NULLS LAST');
+    }
+
+    qb.addOrderBy('place.viewCount', 'DESC');
+    qb.take(limit);
+
+    const places = await qb.getRawAndEntities();
+    
+    // 거리 정보 추가
+    return places.entities.map((place, index) => ({
+      ...place,
+      distance: places.raw[index]?.distance 
+        ? Math.round(parseFloat(places.raw[index].distance))
+        : undefined,
+    }));
+  }
+
+  /**
    * 지도 영역(bounds) 기반 장소 검색
    */
   async searchByBounds(boundsDto: BoundsSearchDto): Promise<Place[]> {
@@ -552,10 +702,13 @@ export class PlacesService {
    * 외부 장소 저장
    */
   private async saveExternalPlace(externalPlace: any): Promise<Place> {
+    const category = this.mapCategory(externalPlace.category) as PlaceCategory;
+    const aiData = this.generateAISearchData(externalPlace, category);
+    
     const place = this.placeRepository.create({
       name: externalPlace.name,
       description: externalPlace.description || this.generateDescription(externalPlace),
-      category: this.mapCategory(externalPlace.category) as PlaceCategory,
+      category,
       address: externalPlace.address,
       latitude: externalPlace.latitude,
       longitude: externalPlace.longitude,
@@ -568,14 +721,173 @@ export class PlacesService {
       rating: externalPlace.rating,
       source: PlaceSource.NAVER,
       externalId: externalPlace.id,
-      isOpen: this.calculateIsOpen(), // 영업 상태 계산
+      isOpen: this.calculateIsOpen(),
+      // AI 검색용 필드
+      features: aiData.features,
+      atmosphere: aiData.atmosphere,
+      keywords: aiData.keywords,
+      recommendFor: aiData.recommendFor,
+      tags: aiData.tags,
       metadata: {
         ...externalPlace.metadata,
-        originalCategory: externalPlace.category, // 원본 카테고리 보존
+        originalCategory: externalPlace.category,
       },
     } as Partial<Place>);
 
     return this.placeRepository.save(place);
+  }
+
+  /**
+   * AI 검색용 데이터 자동 생성
+   */
+  private generateAISearchData(externalPlace: any, category: PlaceCategory): {
+    features: string[];
+    atmosphere: string[];
+    keywords: string[];
+    recommendFor: string[];
+    tags: string[];
+  } {
+    const originalCategory = externalPlace.category?.toLowerCase() || '';
+    const name = externalPlace.name?.toLowerCase() || '';
+    const address = externalPlace.address?.toLowerCase() || '';
+    
+    const features: string[] = [];
+    const atmosphere: string[] = [];
+    const keywords: string[] = [];
+    const recommendFor: string[] = [];
+    const tags: string[] = [];
+
+    // 카테고리 기반 기본 특징 추가
+    switch (category) {
+      case PlaceCategory.CAFE:
+        atmosphere.push('여유로운', '대화하기 좋은');
+        recommendFor.push('친구', '연인', '혼자');
+        tags.push('카페', '커피', '디저트');
+        if (originalCategory.includes('베이커리')) {
+          tags.push('빵', '베이커리');
+          features.push('빵구매가능');
+        }
+        break;
+      case PlaceCategory.RESTAURANT:
+        recommendFor.push('가족', '친구', '연인');
+        tags.push('음식점', '식당');
+        if (originalCategory.includes('한식')) {
+          tags.push('한식', '한정식');
+          atmosphere.push('전통적인');
+        } else if (originalCategory.includes('일식')) {
+          tags.push('일식', '스시', '초밥');
+        } else if (originalCategory.includes('중식')) {
+          tags.push('중식', '중국집');
+        } else if (originalCategory.includes('양식')) {
+          tags.push('양식', '파스타', '스테이크');
+          atmosphere.push('모던한');
+        }
+        break;
+      case PlaceCategory.ACCOMMODATION:
+        features.push('숙박');
+        recommendFor.push('여행객', '커플', '가족');
+        tags.push('숙박', '호텔', '숙소');
+        if (originalCategory.includes('호텔')) {
+          features.push('조식', '룸서비스');
+          atmosphere.push('고급스러운');
+        }
+        break;
+      case PlaceCategory.SHOPPING:
+        tags.push('쇼핑', '마트');
+        recommendFor.push('쇼핑객');
+        break;
+      case PlaceCategory.HEALTHCARE:
+        tags.push('병원', '의료');
+        features.push('진료');
+        break;
+      case PlaceCategory.CONVENIENCE:
+        features.push('24시간', '빠른구매');
+        tags.push('편의점');
+        recommendFor.push('급한용무');
+        break;
+    }
+
+    // 이름에서 키워드 추출
+    const nameKeywords = this.extractKeywordsFromName(name);
+    keywords.push(...nameKeywords);
+
+    // 주소에서 지역 키워드 추출
+    const areaKeywords = this.extractAreaKeywords(address);
+    keywords.push(...areaKeywords);
+
+    // 원본 카테고리에서 키워드 추출
+    if (originalCategory) {
+      const catParts = originalCategory.split(/[>,]/);
+      catParts.forEach((part: string) => {
+        const trimmed = part.trim();
+        if (trimmed && trimmed.length > 1) {
+          tags.push(trimmed);
+        }
+      });
+    }
+
+    // 중복 제거
+    return {
+      features: [...new Set(features)],
+      atmosphere: [...new Set(atmosphere)],
+      keywords: [...new Set(keywords)],
+      recommendFor: [...new Set(recommendFor)],
+      tags: [...new Set(tags)],
+    };
+  }
+
+  /**
+   * 장소명에서 키워드 추출
+   */
+  private extractKeywordsFromName(name: string): string[] {
+    const keywords: string[] = [];
+    
+    // 특정 키워드 패턴 매칭
+    const patterns: [RegExp, string[]][] = [
+      [/24시|24시간|올나잇/, ['24시간', '야간영업']],
+      [/무인|셀프/, ['무인', '셀프서비스']],
+      [/드라이브|드라이브스루/, ['드라이브스루']],
+      [/배달|딜리버리/, ['배달가능']],
+      [/테이크아웃|포장/, ['포장가능']],
+      [/루프탑|옥상/, ['루프탑', '야경']],
+      [/뷰|전망/, ['전망좋은', '뷰맛집']],
+      [/펫|애견|반려/, ['애견동반', '펫프렌들리']],
+      [/키즈|아이|어린이/, ['키즈존', '아이와함께']],
+      [/데이트|커플/, ['데이트', '연인추천']],
+      [/혼밥|혼자/, ['혼밥', '1인식사']],
+      [/맛집/, ['맛집']],
+      [/노포|원조/, ['노포', '오래된맛집']],
+    ];
+
+    patterns.forEach(([pattern, kws]) => {
+      if (pattern.test(name)) {
+        keywords.push(...kws);
+      }
+    });
+
+    return keywords;
+  }
+
+  /**
+   * 주소에서 지역 키워드 추출
+   */
+  private extractAreaKeywords(address: string): string[] {
+    const keywords: string[] = [];
+    
+    // 주요 지역명 추출
+    const areaPatterns = [
+      /강남|서초|송파|강동|강서|마포|영등포|용산|종로|중구|성동|광진|동대문|성북|강북|도봉|노원|은평|서대문|동작|관악|금천|구로|양천/g,
+      /홍대|이태원|신사|압구정|청담|성수|건대|왕십리|합정|망원|연남|해방촌|경리단길|가로수길/g,
+    ];
+
+    areaPatterns.forEach(pattern => {
+      const matches = address.match(pattern);
+      if (matches) {
+        keywords.push(...matches);
+      }
+    });
+
+    return keywords;
   }
 
   /**
