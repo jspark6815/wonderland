@@ -4,6 +4,20 @@ import { RecommendPlaceDto } from './dto/recommend-place.dto';
 import { SummarizeReviewsDto } from './dto/summarize-reviews.dto';
 import { InterpretQueryDto } from './dto/interpret-query.dto';
 
+// JSON 스키마 정의 (고정)
+const JSON_SCHEMA = {
+  searchQuery: 'string (검색 키워드, 예: "강남 조용한 카페")',
+  categories: 'string[] (카테고리 목록: 카페, 음식점, 술집, 쇼핑, 병원, 숙소, 관광지 중 선택)',
+  keywords: 'string[] (검색 키워드 3-5개)',
+  location: 'string | null (지역명, 예: "강남역", "홍대", null)',
+  atmosphere: 'string[] (분위기: 조용한, 활기찬, 로맨틱, 모던, 아늑한 중 선택)',
+  priceRange: 'string | null (가격대: 저렴, 보통, 고급 중 선택)',
+  situation: 'string | null (상황: 데이트, 회식, 혼밥, 작업, 가족모임 중 선택)',
+  specialRequests: 'string[] (특별 요청: 주차, 와이파이, 콘센트, 애견동반, 단체석 등)',
+  response: 'string (사용자에게 보여줄 친근한 응답, 이모지 포함)',
+  followUpQuestions: 'string[] (3개의 맞춤형 후속 질문, 현재 검색 맥락에 맞게 생성)',
+};
+
 // 시스템 프롬프트 정의
 const SYSTEM_PROMPTS = {
   PLACE_ASSISTANT: `당신은 한국의 장소 추천 전문가 "원더"입니다.
@@ -19,17 +33,29 @@ const SYSTEM_PROMPTS = {
 - 다양한 선택지를 제시합니다`,
 
   QUERY_INTERPRETER: `당신은 장소 검색 쿼리 분석 전문가입니다.
-사용자의 자연어 입력을 분석하여 검색에 필요한 구조화된 정보를 추출합니다.
+사용자의 자연어 입력을 분석하여 검색에 필요한 **구조화된 JSON**을 반환합니다.
 
-분석 기준:
-1. 카테고리: 음식점, 카페, 술집, 편의점, 병원, 약국, 쇼핑, 관광지, 숙소, 문화시설 등
-2. 지역: 서울 구/동, 경기도 시/구, 기타 광역시/도 등 구체적 지역
-3. 분위기/특성: 조용한, 활기찬, 로맨틱한, 가족친화적, 혼자가기좋은, 데이트, 모임 등
-4. 가격대: 저렴한, 가성비, 고급, 특별한날 등
-5. 시간/상황: 아침, 점심, 저녁, 브런치, 야식, 24시간 등
-6. 특별 요구: 주차가능, 애견동반, 단체석, 개인실, 루프탑 등
+## 필수 스키마 (이 형식을 정확히 따르세요):
+${JSON.stringify(JSON_SCHEMA, null, 2)}
 
-반드시 JSON 형식으로만 응답하세요.`,
+## 카테고리 값 (정확히 이 중에서 선택):
+- 카페, 음식점, 술집, 쇼핑, 병원, 숙소, 관광지, 편의점, 문화시설
+
+## 분위기 값 (정확히 이 중에서 선택):
+- 조용한, 활기찬, 로맨틱, 모던, 아늑한, 넓은, 힙한, 고급스러운
+
+## 가격대 값 (정확히 이 중에서 선택):
+- 저렴, 보통, 고급
+
+## 상황 값 (정확히 이 중에서 선택):
+- 데이트, 회식, 혼밥, 작업, 가족모임, 친구모임, 비즈니스
+
+## followUpQuestions 생성 규칙:
+- 현재 검색 맥락에 맞는 3개의 질문 생성
+- 예: 카페 검색 시 → ["주차 되는 곳은?", "디저트가 맛있는 곳은?", "더 조용한 곳은?"]
+- 예: 음식점 검색 시 → ["예약이 가능한 곳은?", "단체석 있는 곳은?", "더 가성비 좋은 곳은?"]
+
+반드시 유효한 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`,
 };
 
 export interface InterpretedQuery {
@@ -42,6 +68,7 @@ export interface InterpretedQuery {
   situation?: string;
   specialRequests?: string[];
   response: string;
+  followUpQuestions: string[]; // 맞춤형 후속 질문 (필수)
 }
 
 @Injectable()
@@ -97,50 +124,42 @@ ${dto.reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}
     
     const prompt = `${SYSTEM_PROMPTS.QUERY_INTERPRETER}
 
-사용자 입력: "${dto.query}"
+## 사용자 입력
+"${dto.query}"
 
-다음 JSON 형식으로 분석 결과를 반환하세요:
-{
-  "searchQuery": "검색에 사용할 핵심 키워드 (예: '강남 분위기좋은 카페')",
-  "categories": ["카테고리1", "카테고리2"],
-  "keywords": ["키워드1", "키워드2", "키워드3"],
-  "location": "지역명 (있으면)",
-  "atmosphere": ["분위기1", "분위기2"],
-  "priceRange": "가격대 (저렴/보통/고급)",
-  "situation": "상황 (데이트/모임/혼자/가족 등)",
-  "specialRequests": ["특별요구1", "특별요구2"],
-  "response": "사용자에게 보여줄 친근한 응답 메시지"
-}
-
-예시 1:
+## 예시 1
 입력: "강남역 근처 조용히 작업하기 좋은 카페"
-출력: {
-  "searchQuery": "강남역 작업 카페",
+출력:
+{
+  "searchQuery": "강남역 조용한 작업 카페",
   "categories": ["카페"],
-  "keywords": ["작업", "노트북", "조용한", "카페"],
+  "keywords": ["강남역", "조용한", "작업", "카페", "노트북"],
   "location": "강남역",
-  "atmosphere": ["조용한", "집중하기좋은"],
+  "atmosphere": ["조용한"],
   "priceRange": "보통",
-  "situation": "작업/공부",
+  "situation": "작업",
   "specialRequests": ["콘센트", "와이파이"],
-  "response": "강남역 근처에서 조용히 작업하기 좋은 카페를 찾아볼게요! ☕ 콘센트와 와이파이가 잘 되는 곳으로 추천해드릴게요."
+  "response": "강남역 근처 조용한 작업 카페를 찾아볼게요! ☕",
+  "followUpQuestions": ["콘센트 있는 곳만 보여줘", "주차 되는 곳은?", "24시간 영업하는 곳은?"]
 }
 
-예시 2:
+## 예시 2
 입력: "오늘 저녁 데이트하기 좋은 분위기 있는 레스토랑"
-출력: {
+출력:
+{
   "searchQuery": "데이트 분위기 레스토랑",
-  "categories": ["레스토랑", "양식", "이탈리안"],
-  "keywords": ["데이트", "분위기", "로맨틱", "저녁"],
+  "categories": ["음식점"],
+  "keywords": ["데이트", "분위기", "로맨틱", "저녁", "레스토랑"],
   "location": null,
-  "atmosphere": ["로맨틱한", "분위기좋은"],
+  "atmosphere": ["로맨틱"],
   "priceRange": "고급",
   "situation": "데이트",
   "specialRequests": [],
-  "response": "특별한 데이트를 위한 분위기 좋은 레스토랑을 찾아드릴게요! 🍷 어떤 지역이 좋으신가요?"
+  "response": "분위기 좋은 데이트 레스토랑을 찾아드릴게요! 🍷",
+  "followUpQuestions": ["강남쪽은 어때?", "예약 가능한 곳은?", "더 저렴한 곳은?"]
 }
 
-JSON:`;
+## 지금 분석할 입력에 대한 JSON 출력:`;
 
     try {
       const response = await this.ollamaService.generate(prompt);
@@ -162,14 +181,17 @@ JSON:`;
       // 필수 필드 보완
       const result: InterpretedQuery = {
         searchQuery: parsed.searchQuery || dto.query,
-        categories: parsed.categories || [],
+        categories: this.normalizeCategories(parsed.categories || []),
         keywords: parsed.keywords?.length > 0 ? parsed.keywords : [dto.query],
         location: parsed.location || undefined,
         atmosphere: parsed.atmosphere || [],
-        priceRange: parsed.priceRange || undefined,
+        priceRange: this.normalizePriceRange(parsed.priceRange),
         situation: parsed.situation || undefined,
         specialRequests: parsed.specialRequests || [],
         response: parsed.response || this.generateDefaultResponse(dto.query, parsed),
+        followUpQuestions: parsed.followUpQuestions?.length > 0 
+          ? parsed.followUpQuestions.slice(0, 4) 
+          : this.generateFollowUpQuestions(parsed),
       };
       
       this.logger.debug(`Interpreted result:`, result);
@@ -258,12 +280,14 @@ ${placesInfo}
     // 간단한 키워드 추출
     const keywords: string[] = [];
     const categories: string[] = [];
+    const atmosphere: string[] = [];
     let location: string | undefined;
+    let situation: string | undefined;
     
     // 카테고리 키워드 매칭
     const categoryMap: Record<string, string[]> = {
-      '카페': ['카페', '커피', '디저트', '브런치'],
-      '레스토랑': ['레스토랑', '맛집', '음식점', '식당', '밥'],
+      '카페': ['카페', '커피', '디저트', '브런치', '베이커리'],
+      '음식점': ['레스토랑', '맛집', '음식점', '식당', '밥', '한식', '중식', '일식', '양식'],
       '술집': ['술집', '바', '호프', '이자카야', '포차'],
       '쇼핑': ['쇼핑', '백화점', '마트', '옷가게'],
     };
@@ -271,6 +295,35 @@ ${placesInfo}
     for (const [category, words] of Object.entries(categoryMap)) {
       if (words.some(word => query.includes(word))) {
         categories.push(category);
+      }
+    }
+
+    // 분위기 키워드
+    const atmosphereMap: Record<string, string[]> = {
+      '조용한': ['조용', '한적', '고요'],
+      '활기찬': ['활기', '북적', '시끌'],
+      '로맨틱': ['로맨틱', '분위기', '감성'],
+      '아늑한': ['아늑', '따뜻', '포근'],
+    };
+    
+    for (const [atm, words] of Object.entries(atmosphereMap)) {
+      if (words.some(word => query.includes(word))) {
+        atmosphere.push(atm);
+      }
+    }
+
+    // 상황 키워드
+    const situationMap: Record<string, string[]> = {
+      '데이트': ['데이트', '연인', '커플'],
+      '회식': ['회식', '단체', '모임'],
+      '혼밥': ['혼밥', '혼자', '1인'],
+      '작업': ['작업', '공부', '노트북'],
+    };
+    
+    for (const [sit, words] of Object.entries(situationMap)) {
+      if (words.some(word => query.includes(word))) {
+        situation = sit;
+        break;
       }
     }
     
@@ -290,19 +343,97 @@ ${placesInfo}
     }
     
     // 키워드 추출
-    const stopWords = ['좋은', '있는', '추천', '해주세요', '알려', '찾아', '근처', '주변'];
+    const stopWords = ['좋은', '있는', '추천', '해주세요', '알려', '찾아', '근처', '주변', '더', '다른'];
     const words = query.split(/\s+/).filter(w => 
       w.length > 1 && !stopWords.some(sw => w.includes(sw))
     );
     keywords.push(...words.slice(0, 5));
-    
-    return {
-      searchQuery: query,
+
+    const result = {
+      searchQuery: keywords.length > 0 ? keywords.join(' ') : query,
       categories,
       keywords: keywords.length > 0 ? keywords : [query],
       location,
-      atmosphere: [],
-      response: `"${query}"로 검색해볼게요! 🔍`,
+      atmosphere,
+      situation,
+      specialRequests: [],
+      response: categories.length > 0 
+        ? `${categories[0]}을(를) 찾아볼게요! 🔍`
+        : `"${query}"로 검색해볼게요! 🔍`,
+      followUpQuestions: this.generateFollowUpQuestions({ categories, atmosphere, situation, location }),
     };
+    
+    return result;
+  }
+
+  /**
+   * 카테고리 정규화
+   */
+  private normalizeCategories(categories: string[]): string[] {
+    const validCategories = ['카페', '음식점', '술집', '쇼핑', '병원', '숙소', '관광지', '편의점', '문화시설'];
+    return categories.filter(c => validCategories.includes(c) || validCategories.some(vc => c.includes(vc)));
+  }
+
+  /**
+   * 가격대 정규화
+   */
+  private normalizePriceRange(priceRange?: string): string | undefined {
+    if (!priceRange) return undefined;
+    const validRanges = ['저렴', '보통', '고급'];
+    const lower = priceRange.toLowerCase();
+    if (lower.includes('저렴') || lower.includes('싼')) return '저렴';
+    if (lower.includes('고급') || lower.includes('비싼')) return '고급';
+    if (validRanges.includes(priceRange)) return priceRange;
+    return '보통';
+  }
+
+  /**
+   * 맞춤형 후속 질문 생성
+   */
+  private generateFollowUpQuestions(parsed: Partial<InterpretedQuery>): string[] {
+    const questions: string[] = [];
+    const category = parsed.categories?.[0];
+    const hasLocation = !!parsed.location;
+    const hasAtmosphere = (parsed.atmosphere?.length || 0) > 0;
+    const situation = parsed.situation;
+
+    // 카테고리별 맞춤 질문
+    if (category === '카페') {
+      questions.push('디저트가 맛있는 곳은?');
+      if (!hasAtmosphere) questions.push('더 조용한 곳은?');
+      questions.push('콘센트 있는 곳만 보여줘');
+      questions.push('주차 되는 곳은?');
+    } else if (category === '음식점') {
+      questions.push('예약 가능한 곳은?');
+      questions.push('단체석 있는 곳은?');
+      questions.push('더 가성비 좋은 곳은?');
+      if (!hasLocation) questions.push('강남쪽은 어때?');
+    } else if (category === '술집') {
+      questions.push('안주가 맛있는 곳은?');
+      questions.push('조용히 얘기할 수 있는 곳은?');
+      questions.push('룸 있는 곳은?');
+    } else {
+      // 기본 질문
+      questions.push('주차 되는 곳은?');
+      questions.push('더 가까운 곳은?');
+      questions.push('평점 높은 곳은?');
+    }
+
+    // 상황별 추가 질문
+    if (situation === '데이트') {
+      questions.push('더 로맨틱한 곳은?');
+    } else if (situation === '회식') {
+      questions.push('더 넓은 곳은?');
+    } else if (situation === '작업') {
+      questions.push('24시간 영업하는 곳은?');
+    }
+
+    // 지역 관련 질문
+    if (!hasLocation) {
+      questions.push('홍대쪽은 어때?');
+    }
+
+    // 중복 제거 후 4개까지 반환
+    return [...new Set(questions)].slice(0, 4);
   }
 }

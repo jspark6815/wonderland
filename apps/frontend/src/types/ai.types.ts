@@ -11,6 +11,7 @@ export interface InterpretedQuery {
   situation?: string;
   specialRequests?: string[];
   response: string;
+  followUpQuestions?: string[]; // AI가 생성한 맞춤형 후속 질문
 }
 
 /**

@@ -6,6 +6,7 @@ import { aiSearchAPI, AISearchResponse, SearchContext } from '@/api/ai.api';
  */
 export interface AISearchResult extends AISearchResponse {
   places?: unknown[];
+  followUpQuestions?: string[]; // 맞춤형 후속 질문
 }
 
 export const useAISearch = () => {

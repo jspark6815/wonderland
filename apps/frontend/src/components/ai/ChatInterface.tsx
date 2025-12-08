@@ -42,11 +42,11 @@ const QUICK_SUGGESTIONS = [
   { icon: '🍜', text: '혼밥 맛집', query: '혼자 가기 좋은 맛집 추천해줘' },
 ];
 
-const FOLLOW_UP_SUGGESTIONS = [
-  '더 저렴한 곳은 없을까?',
-  '주차가 되는 곳으로 알려줘',
-  '다른 지역은 어때?',
-  '더 조용한 곳은?',
+// 기본 후속 질문 (AI가 생성하지 않았을 때 사용)
+const DEFAULT_FOLLOW_UP = [
+  '주차 되는 곳은?',
+  '더 가까운 곳은?',
+  '평점 높은 곳만 보여줘',
 ];
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -106,12 +106,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         responseContent += `\n📍 지역: ${result.location}`;
       }
       
+      // AI가 생성한 후속 질문 사용 (없으면 기본값)
+      const followUpQuestions = result.followUpQuestions && result.followUpQuestions.length > 0
+        ? result.followUpQuestions
+        : DEFAULT_FOLLOW_UP;
+
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         content: responseContent,
         timestamp: new Date(),
-        suggestions: FOLLOW_UP_SUGGESTIONS,
+        suggestions: followUpQuestions,
       };
       
       setMessages(prev => [...prev, assistantMessage]);

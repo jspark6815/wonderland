@@ -18,6 +18,7 @@ export interface AISearchResponse {
   location?: string;
   atmosphere?: string[];
   situation?: string;
+  followUpQuestions?: string[]; // AI가 생성한 맞춤형 후속 질문
 }
 
 /**
@@ -118,6 +119,7 @@ const fallbackInterpret = (query: string, context?: SearchContext): AISearchResp
       categories: [...new Set(categories)],
       location,
       atmosphere,
+      followUpQuestions: generateFollowUpQuestions(categories[0], location, atmosphere),
     };
   }
 
@@ -178,7 +180,48 @@ const fallbackInterpret = (query: string, context?: SearchContext): AISearchResp
     categories,
     location,
     atmosphere,
+    followUpQuestions: generateFollowUpQuestions(categories[0], location, atmosphere),
   };
+};
+
+/**
+ * 맞춤형 후속 질문 생성 (프론트엔드 폴백용)
+ */
+const generateFollowUpQuestions = (
+  category?: string, 
+  location?: string, 
+  atmosphere?: string[]
+): string[] => {
+  const questions: string[] = [];
+  const hasAtmosphere = atmosphere && atmosphere.length > 0;
+
+  // 카테고리별 맞춤 질문
+  if (category === '카페') {
+    questions.push('디저트가 맛있는 곳은?');
+    if (!hasAtmosphere) questions.push('더 조용한 곳은?');
+    questions.push('주차 되는 곳은?');
+    questions.push('24시간 영업하는 곳은?');
+  } else if (category === '음식점') {
+    questions.push('예약 가능한 곳은?');
+    questions.push('더 가성비 좋은 곳은?');
+    questions.push('주차 되는 곳은?');
+    if (!location) questions.push('강남쪽은 어때?');
+  } else if (category === '술집') {
+    questions.push('안주가 맛있는 곳은?');
+    questions.push('룸 있는 곳은?');
+    questions.push('더 조용한 곳은?');
+  } else {
+    questions.push('주차 되는 곳은?');
+    questions.push('평점 높은 곳만 보여줘');
+    questions.push('더 가까운 곳은?');
+  }
+
+  // 지역 없으면 지역 질문 추가
+  if (!location) {
+    questions.push('홍대쪽은 어때?');
+  }
+
+  return [...new Set(questions)].slice(0, 4);
 };
 
 /**
@@ -220,6 +263,7 @@ export const aiSearchAPI = async (query: string, context?: SearchContext): Promi
       location: mergedLocation,
       atmosphere: result.atmosphere,
       situation: result.situation,
+      followUpQuestions: result.followUpQuestions || [],
     };
   } catch (error) {
     // 개발 환경에서만 로깅
