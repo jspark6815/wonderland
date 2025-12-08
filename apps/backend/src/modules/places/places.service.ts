@@ -24,10 +24,19 @@ export class PlacesService {
    * 하이브리드 검색: 내부 DB + 외부 API (위치 기반 필터링 지원)
    */
   async searchPlaces(searchDto: SearchPlacesDto): Promise<Place[]> {
-    const { query, category, limit = 20, useExternal = true, lat, lng, radius = 5000 } = searchDto;
+    let { query, category, limit = 20, useExternal = true, lat, lng, radius = 5000 } = searchDto;
+
+    // 0. "근처/주변" 키워드 감지 및 처리
+    const nearbyResult = this.parseNearbyQuery(query);
+    if (nearbyResult.isNearby) {
+      query = nearbyResult.cleanQuery;
+      // 근처 검색 시 기본 반경 2km, 위치 필수
+      radius = nearbyResult.radius || 2000;
+      this.logger.debug(`Nearby search detected: "${query}" within ${radius}m`);
+    }
 
     // 1. 캐시 확인
-    const cacheKey = this.cacheService.generateKey('search', searchDto);
+    const cacheKey = this.cacheService.generateKey('search', { ...searchDto, query, radius });
     const cached = await this.cacheService.get<Place[]>(cacheKey);
     if (cached) {
       this.logger.debug('Returning cached search results');
@@ -36,9 +45,43 @@ export class PlacesService {
 
     let results: Place[] = [];
 
-    // 2. 내부 DB 검색 (위치 기반 필터링 포함)
+    // 2. 근처 검색이면 위치 기반 검색 우선
+    if (nearbyResult.isNearby && lat && lng) {
+      // 위치 기반 검색 먼저 수행
+      const nearbyResults = await this.searchNearby({
+        lat,
+        lng,
+        radius,
+        category,
+        limit,
+      });
+      
+      // 키워드로 필터링
+      if (query) {
+        const queryLower = query.toLowerCase();
+        results = nearbyResults.filter(place =>
+          place.name?.toLowerCase().includes(queryLower) ||
+          place.category?.toLowerCase().includes(queryLower) ||
+          place.tags?.some(tag => tag.toLowerCase().includes(queryLower))
+        );
+      } else {
+        results = nearbyResults;
+      }
+      
+      // 결과가 충분하면 바로 반환
+      if (results.length >= limit / 2) {
+        await this.cacheService.set(cacheKey, results, 300);
+        return results;
+      }
+    }
+
+    // 3. 내부 DB 검색 (위치 기반 필터링 포함)
     const internalResults = await this.searchInternal(query, category, limit, lat, lng, radius);
-    results = [...internalResults];
+    
+    // 기존 결과와 병합 (중복 제거)
+    const existingIds = new Set(results.map(p => p.id));
+    const uniqueInternal = internalResults.filter(p => !existingIds.has(p.id));
+    results = [...results, ...uniqueInternal];
 
     // 3. 외부 API 검색 (필요시)
     if (useExternal && results.length < limit) {
@@ -533,6 +576,71 @@ export class PlacesService {
     } as Partial<Place>);
 
     return this.placeRepository.save(place);
+  }
+
+  /**
+   * "근처/주변" 키워드 파싱
+   * @returns { isNearby: boolean, cleanQuery: string, radius?: number }
+   */
+  private parseNearbyQuery(query: string): { isNearby: boolean; cleanQuery: string; radius?: number } {
+    if (!query) return { isNearby: false, cleanQuery: query };
+    
+    // 근처/주변 관련 키워드 패턴
+    const nearbyPatterns = [
+      { pattern: /근처\s*/gi, radius: 2000 },      // 근처 → 2km
+      { pattern: /주변\s*/gi, radius: 2000 },      // 주변 → 2km
+      { pattern: /가까운\s*/gi, radius: 1000 },    // 가까운 → 1km
+      { pattern: /인근\s*/gi, radius: 3000 },      // 인근 → 3km
+      { pattern: /내\s*주변\s*/gi, radius: 1000 }, // 내 주변 → 1km
+      { pattern: /여기\s*근처\s*/gi, radius: 1000 }, // 여기 근처 → 1km
+      { pattern: /이\s*근처\s*/gi, radius: 1000 },   // 이 근처 → 1km
+      { pattern: /nearby\s*/gi, radius: 2000 },
+      { pattern: /near\s*me\s*/gi, radius: 1000 },
+    ];
+    
+    // 거리 지정 패턴 (예: "500m 내", "1km 이내", "2킬로 안")
+    const distancePatterns = [
+      { pattern: /(\d+)\s*m\s*(내|이내|안에?|반경)?\s*/gi, unit: 1 },
+      { pattern: /(\d+)\s*(km|킬로)\s*(내|이내|안에?|반경)?\s*/gi, unit: 1000 },
+      { pattern: /(\d+)\s*미터\s*(내|이내|안에?|반경)?\s*/gi, unit: 1 },
+      { pattern: /반경\s*(\d+)\s*m\s*/gi, unit: 1 },
+      { pattern: /반경\s*(\d+)\s*(km|킬로)\s*/gi, unit: 1000 },
+    ];
+    
+    let isNearby = false;
+    let cleanQuery = query;
+    let radius: number | undefined;
+    
+    // 1. 거리 지정 패턴 먼저 확인
+    for (const { pattern, unit } of distancePatterns) {
+      const match = pattern.exec(query);
+      if (match) {
+        isNearby = true;
+        radius = parseInt(match[1], 10) * unit;
+        cleanQuery = cleanQuery.replace(pattern, '');
+        break;
+      }
+    }
+    
+    // 2. 근처/주변 키워드 확인
+    for (const { pattern, radius: defaultRadius } of nearbyPatterns) {
+      if (pattern.test(cleanQuery)) {
+        isNearby = true;
+        cleanQuery = cleanQuery.replace(pattern, '');
+        if (!radius) radius = defaultRadius;
+        break;
+      }
+    }
+    
+    // 쿼리 정리 (앞뒤 공백 제거)
+    cleanQuery = cleanQuery.trim();
+    
+    // 최소/최대 반경 제한
+    if (radius) {
+      radius = Math.max(100, Math.min(radius, 10000)); // 100m ~ 10km
+    }
+    
+    return { isNearby, cleanQuery, radius };
   }
 
   /**

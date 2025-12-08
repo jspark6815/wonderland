@@ -15,7 +15,7 @@ export const createInitialMessages = (): ChatMessage[] => [
   {
     id: '1',
     type: 'assistant',
-    content: '안녕하세요! 저는 장소 추천 AI "원더"예요 ✨\n\n어떤 장소를 찾고 계신가요? 자연스럽게 말씀해주세요!',
+    content: '안녕하세요! 저는 장소 추천 AI "원더"예요 ✨\n\n어떤 장소를 찾고 계신가요? 궁금한 내용을 말씀해주세요!',
     timestamp: new Date(),
     suggestions: QUICK_SUGGESTIONS.map(s => s.text),
   },
