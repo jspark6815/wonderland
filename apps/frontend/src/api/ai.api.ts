@@ -21,6 +21,17 @@ export interface AISearchResponse {
 }
 
 /**
+ * 검색 컨텍스트 (후속 질문용)
+ */
+export interface SearchContext {
+  lastSearchQuery?: string;
+  lastKeywords?: string[];
+  lastCategories?: string[];
+  lastLocation?: string;
+  lastAtmosphere?: string[];
+}
+
+/**
  * AI 전용 클라이언트 (긴 타임아웃)
  */
 const aiClient = axios.create({
@@ -36,18 +47,87 @@ aiClient.interceptors.response.use(
 );
 
 /**
+ * 후속 질문 패턴 감지
+ */
+const isFollowUpQuery = (query: string): boolean => {
+  const followUpPatterns = [
+    /^더\s/, /^다른\s/, /^또\s/, /없을까/, /있을까/, /어때\??$/, /은\??$/, /는\??$/,
+    /말고/, /대신/, /비슷한/, /가까운/, /저렴한/, /비싼/
+  ];
+  return followUpPatterns.some(pattern => pattern.test(query));
+};
+
+/**
+ * 후속 질문에서 의미 있는 조건 추출
+ */
+const extractConditionFromFollowUp = (query: string): { condition: string; type: string } | null => {
+  const conditionPatterns: [RegExp, string, string][] = [
+    [/더\s*(조용한|시끄러운|넓은|좁은|깨끗한)/, '$1', 'atmosphere'],
+    [/더\s*(저렴한|싼|비싼|고급)/, '$1', 'price'],
+    [/(주차|와이파이|WiFi|흡연|금연|예약)/, '$1', 'feature'],
+    [/(혼밥|데이트|회식|가족|친구|연인)/, '$1', 'situation'],
+    [/다른\s*(지역|동네|곳)/, '다른 지역', 'location'],
+  ];
+
+  for (const [pattern, replacement, type] of conditionPatterns) {
+    const match = query.match(pattern);
+    if (match) {
+      return { 
+        condition: match[1] || replacement.replace('$1', match[1] || ''), 
+        type 
+      };
+    }
+  }
+  return null;
+};
+
+/**
  * 프론트엔드 폴백 해석 (AI 실패 시)
  */
-const fallbackInterpret = (query: string): AISearchResponse => {
+const fallbackInterpret = (query: string, context?: SearchContext): AISearchResponse => {
   const keywords: string[] = [];
   const categories: string[] = [];
   let location: string | undefined;
+  const atmosphere: string[] = [];
 
+  // 후속 질문인 경우 이전 컨텍스트 활용
+  if (isFollowUpQuery(query) && context?.lastSearchQuery) {
+    // 이전 검색어의 키워드와 카테고리 유지
+    keywords.push(...(context.lastKeywords || []));
+    categories.push(...(context.lastCategories || []));
+    location = context.lastLocation;
+
+    // 새 조건 추출 및 추가
+    const newCondition = extractConditionFromFollowUp(query);
+    if (newCondition) {
+      if (newCondition.type === 'atmosphere') {
+        atmosphere.push(newCondition.condition);
+        keywords.push(newCondition.condition);
+      } else if (newCondition.type === 'feature') {
+        keywords.push(newCondition.condition);
+      } else if (newCondition.type === 'situation') {
+        keywords.push(newCondition.condition);
+      }
+    }
+
+    const searchQuery = [...new Set(keywords)].join(' ');
+    return {
+      response: `${newCondition?.condition || '조건'}을 추가해서 다시 찾아볼게요! 🔍`,
+      searchQuery: searchQuery || context.lastSearchQuery,
+      keywords: [...new Set(keywords)],
+      categories: [...new Set(categories)],
+      location,
+      atmosphere,
+    };
+  }
+
+  // 일반 질문 처리
   // 카테고리 매칭
   const categoryMap: Record<string, string[]> = {
-    '카페': ['카페', '커피', '디저트', '브런치'],
-    '음식점': ['맛집', '음식점', '식당', '밥', '레스토랑'],
+    '카페': ['카페', '커피', '디저트', '브런치', '베이커리'],
+    '음식점': ['맛집', '음식점', '식당', '밥', '레스토랑', '한식', '중식', '일식', '양식'],
     '술집': ['술집', '바', '호프', '이자카야', '포차'],
+    '쇼핑': ['쇼핑', '마트', '백화점'],
   };
   
   for (const [category, words] of Object.entries(categoryMap)) {
@@ -55,6 +135,12 @@ const fallbackInterpret = (query: string): AISearchResponse => {
       categories.push(category);
     }
   }
+
+  // 분위기 키워드
+  const atmosphereKeywords = ['조용한', '시끄러운', '분위기', '로맨틱', '아늑한', '넓은', '모던'];
+  atmosphereKeywords.forEach(kw => {
+    if (query.includes(kw)) atmosphere.push(kw);
+  });
 
   // 지역 추출
   const locationPatterns = [
@@ -71,39 +157,67 @@ const fallbackInterpret = (query: string): AISearchResponse => {
     }
   }
 
-  // 키워드 추출
-  const stopWords = ['좋은', '있는', '추천', '해주세요', '알려', '찾아', '근처', '주변', '되는', '곳으로'];
+  // 키워드 추출 (불용어 제거)
+  const stopWords = ['좋은', '있는', '추천', '해주세요', '알려', '찾아', '근처', '주변', '되는', '곳으로', '곳은', '더', '다른'];
   const words = query.split(/\s+/).filter(w => 
     w.length > 1 && !stopWords.some(sw => w.includes(sw))
   );
   keywords.push(...words.slice(0, 5));
 
+  // 분위기 키워드도 검색어에 추가
+  keywords.push(...atmosphere);
+
+  const uniqueKeywords = [...new Set(keywords)];
+  
   return {
-    response: `"${query}"로 검색해볼게요! 🔍`,
-    searchQuery: keywords.length > 0 ? keywords.join(' ') : query,
-    keywords: keywords.length > 0 ? keywords : [query],
+    response: categories.length > 0 
+      ? `${categories.join(', ')}을(를) 찾아볼게요! 🔍`
+      : `"${query}"로 검색해볼게요! 🔍`,
+    searchQuery: uniqueKeywords.length > 0 ? uniqueKeywords.join(' ') : query,
+    keywords: uniqueKeywords.length > 0 ? uniqueKeywords : [query],
     categories,
     location,
+    atmosphere,
   };
 };
 
 /**
  * AI를 통한 자연어 검색
  */
-export const aiSearchAPI = async (query: string): Promise<AISearchResponse> => {
+export const aiSearchAPI = async (query: string, context?: SearchContext): Promise<AISearchResponse> => {
+  // 후속 질문 감지
+  const isFollowUp = isFollowUpQuery(query);
+  
+  // 후속 질문이면 이전 컨텍스트와 합쳐서 전달
+  let enhancedQuery = query;
+  if (isFollowUp && context?.lastSearchQuery) {
+    enhancedQuery = `이전 검색: "${context.lastSearchQuery}". 추가 조건: ${query}`;
+  }
+
   try {
     // 토큰 가져오기
     const token = localStorage.getItem('token');
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-    const result = await aiClient.post<unknown, InterpretedQuery>('/ai/interpret', { query }, { headers });
+    const result = await aiClient.post<unknown, InterpretedQuery>('/ai/interpret', { query: enhancedQuery }, { headers });
     
+    // 후속 질문이면 이전 컨텍스트와 병합
+    let mergedKeywords = result.keywords || [];
+    let mergedCategories = result.categories || [];
+    let mergedLocation = result.location;
+    
+    if (isFollowUp && context) {
+      mergedKeywords = [...new Set([...(context.lastKeywords || []), ...mergedKeywords])];
+      mergedCategories = [...new Set([...(context.lastCategories || []), ...mergedCategories])];
+      mergedLocation = mergedLocation || context.lastLocation;
+    }
+
     return {
       response: result.response || `"${query}"를 검색해볼게요! 🔍`,
-      searchQuery: result.searchQuery || query,
-      keywords: result.keywords || [query],
-      categories: result.categories || [],
-      location: result.location,
+      searchQuery: result.searchQuery || (mergedKeywords.length > 0 ? mergedKeywords.join(' ') : query),
+      keywords: mergedKeywords.length > 0 ? mergedKeywords : [query],
+      categories: mergedCategories,
+      location: mergedLocation,
       atmosphere: result.atmosphere,
       situation: result.situation,
     };
@@ -114,8 +228,8 @@ export const aiSearchAPI = async (query: string): Promise<AISearchResponse> => {
       console.warn('AI 해석 실패, 폴백 사용:', error instanceof Error ? error.message : 'Unknown');
     }
     
-    // AI 실패 시 프론트엔드 폴백 해석 사용
-    return fallbackInterpret(query);
+    // AI 실패 시 프론트엔드 폴백 해석 사용 (컨텍스트 전달)
+    return fallbackInterpret(query, context);
   }
 };
 
