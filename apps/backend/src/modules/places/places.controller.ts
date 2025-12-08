@@ -2,7 +2,7 @@ import {
   Controller,
   Get,
   Post,
-  Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -11,8 +11,10 @@ import {
   HttpStatus,
   Req,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { PlacesService } from './places.service';
 import { SearchHistoryService } from './services/search-history.service';
@@ -218,28 +220,70 @@ export class PlacesController {
     return this.placesService.getPlaceDetail(id);
   }
 
+  /**
+   * 장소 등록
+   * - 인증 필수: @Public() 제거
+   * - Rate limiting: 1분에 최대 5회
+   * - DTO 유효성 검사: 강화된 CreatePlaceDto 적용
+   */
   @Post()
-  @Public()
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: '장소 등록' })
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 1분에 최대 5회
+  @ApiOperation({ summary: '장소 등록 (인증 필수)' })
   @ApiResponse({
     status: 201,
     description: '장소 등록 완료',
     type: Place,
   })
-  async createPlace(@Body() createDto: CreatePlaceDto): Promise<Place> {
-    return this.placesService.createPlace(createDto);
+  @ApiResponse({
+    status: 401,
+    description: '인증되지 않은 사용자',
+  })
+  @ApiResponse({
+    status: 429,
+    description: 'Rate limit 초과 (1분에 최대 5회)',
+  })
+  async createPlace(
+    @Body() createDto: CreatePlaceDto,
+    @Req() req: Request,
+  ): Promise<Place> {
+    // 인증된 사용자만 장소 등록 가능
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException('장소를 등록하려면 로그인이 필요합니다.');
+    }
+    
+    return this.placesService.createPlace(createDto, userId);
   }
 
-  @Put(':id/favorite')
+  /**
+   * 즐겨찾기 토글
+   * - PATCH 사용 (리소스 부분 수정)
+   * - 사용자 ID로 권한 확인
+   */
+  @Patch(':id/favorite')
   @ApiBearerAuth()
-  @ApiOperation({ summary: '즐겨찾기 토글' })
+  @ApiOperation({ summary: '즐겨찾기 토글 (인증 필수)' })
   @ApiResponse({
     status: 200,
     description: '즐겨찾기 상태 변경',
     type: Place,
   })
-  async toggleFavorite(@Param('id') id: string): Promise<Place> {
-    return this.placesService.toggleFavorite(id);
+  @ApiResponse({
+    status: 401,
+    description: '인증되지 않은 사용자',
+  })
+  async toggleFavorite(
+    @Param('id') id: string,
+    @Req() req: Request,
+  ): Promise<Place> {
+    // 인증된 사용자만 즐겨찾기 토글 가능
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException('즐겨찾기를 변경하려면 로그인이 필요합니다.');
+    }
+    
+    return this.placesService.toggleFavorite(id, userId);
   }
 }
