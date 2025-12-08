@@ -43,28 +43,33 @@ export class PlacesService {
     // 3. 외부 API 검색 (필요시)
     if (useExternal && results.length < limit) {
       try {
-        // 위치가 있으면 위치 기반 검색, 없으면 키워드 검색
-        let externalResults;
-        if (lat && lng) {
-          externalResults = await this.naverPlacesService.searchPlacesByLocation(
-            lat,
-            lng,
-            radius,
-            limit - results.length
-          );
-          // 키워드로 추가 필터링
-          if (query) {
-            externalResults = externalResults.filter((place: any) => 
-              place.name?.toLowerCase().includes(query.toLowerCase()) ||
-              place.address?.toLowerCase().includes(query.toLowerCase()) ||
-              place.category?.toLowerCase().includes(query.toLowerCase())
-            );
-          }
-        } else {
-          externalResults = await this.naverPlacesService.searchPlaces(
+        let externalResults: any[] = [];
+        
+        // 3-1. 키워드로 직접 검색 (항상 실행)
+        if (query) {
+          const keywordResults = await this.naverPlacesService.searchPlaces(
             query,
             limit - results.length
           );
+          externalResults = [...keywordResults];
+        }
+        
+        // 3-2. 위치 기반 검색 결과도 추가 (옵션)
+        if (lat && lng && externalResults.length < limit - results.length) {
+          const locationResults = await this.naverPlacesService.searchPlacesByLocation(
+            lat,
+            lng,
+            radius,
+            limit - results.length - externalResults.length
+          );
+          
+          // 중복 제거 (이름+주소 기준)
+          const existingKeys = new Set(externalResults.map((p: any) => `${p.name}_${p.address}`));
+          const uniqueLocationResults = locationResults.filter((p: any) => 
+            !existingKeys.has(`${p.name}_${p.address}`)
+          );
+          
+          externalResults = [...externalResults, ...uniqueLocationResults];
         }
         
         // 외부 결과를 내부 형식으로 변환하고 캐시
