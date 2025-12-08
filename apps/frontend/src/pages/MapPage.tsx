@@ -78,27 +78,40 @@ export const MapPage: React.FC = () => {
     prevAuthRef.current = isAuthenticated;
   }, [isAuthenticated]);
 
-  // 검색 실행 (현재 지도 영역 기반 + 키워드 필터링)
+  // 검색 실행 (DB 검색 우선 + bounds 필터링)
   const handleSearch = useCallback(async (query: string, category?: string | null) => {
     if (!query.trim()) return;
     
     setSearchQuery(query);
     setShowSidebar(true);
     setIsSearching(true);
-    setShowResearchButton(false); // 검색하면 재검색 버튼 숨기기
+    setShowResearchButton(false);
     
     try {
       let results: Place[] = [];
       
-      // 1. bounds 기반으로 장소 검색 (현재 지도 영역)
-      if (mapBounds) {
+      // 1. 먼저 DB 전체 검색 시도 (외부 API 포함)
+      try {
+        const dbResults = await search(query, {
+          category,
+          lat: mapCenter.lat,
+          lng: mapCenter.lng,
+          radius: 10000,
+        });
+        results = dbResults.places || [];
+      } catch {
+        // DB 검색 실패 시 무시
+      }
+      
+      // 2. DB 검색 결과가 없고 bounds가 있으면 bounds 기반 검색
+      if (results.length === 0 && mapBounds) {
         const boundsResults = await searchPlacesByBoundsAPI(
           mapBounds,
           category || undefined,
           100
         );
         
-        // 2. 키워드로 클라이언트 사이드 필터링
+        // 키워드로 클라이언트 사이드 필터링
         const queryLower = query.toLowerCase();
         results = boundsResults.filter(place => 
           place.name?.toLowerCase().includes(queryLower) ||
@@ -106,17 +119,6 @@ export const MapPage: React.FC = () => {
           place.category?.toLowerCase().includes(queryLower) ||
           place.tags?.some(tag => tag.toLowerCase().includes(queryLower))
         );
-      }
-      
-      // 3. bounds 검색 결과가 없으면 DB 전체 검색 시도
-      if (results.length === 0) {
-        const dbResults = await search(query, {
-          category,
-          lat: mapCenter.lat,
-          lng: mapCenter.lng,
-          radius: 10000, // 10km로 확대
-        });
-        results = dbResults.places;
       }
       
       setSearchResults(results);
