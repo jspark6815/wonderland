@@ -19,9 +19,9 @@ export class NaverPlacesService {
   }
 
   /**
-   * 네이버 지역 검색 API
+   * 네이버 지역 검색 API (이미지 포함)
    */
-  async searchPlaces(query: string, display: number = 20): Promise<any[]> {
+  async searchPlaces(query: string, display: number = 20, includeImages: boolean = true): Promise<any[]> {
     try {
       const response = await firstValueFrom(
         this.httpService.get(`${this.baseUrl}/local.json`, {
@@ -37,6 +37,10 @@ export class NaverPlacesService {
         })
       );
 
+      // 이미지 포함 여부에 따라 변환 방식 결정
+      if (includeImages) {
+        return this.transformNaverResultsWithImages(response.data.items);
+      }
       return this.transformNaverResults(response.data.items);
     } catch (error) {
       this.logger.error('Naver API search failed:', error);
@@ -203,7 +207,72 @@ export class NaverPlacesService {
   }
 
   /**
-   * 네이버 API 결과 변환
+   * 네이버 이미지 검색 API
+   * @param query 검색 키워드 (장소명)
+   * @returns 이미지 URL 배열
+   */
+  async searchImages(query: string, display: number = 3): Promise<string[]> {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.baseUrl}/image`, {
+          params: {
+            query,
+            display,
+            sort: 'sim', // 유사도순
+          },
+          headers: {
+            'X-Naver-Client-Id': this.clientId,
+            'X-Naver-Client-Secret': this.clientSecret,
+          },
+        })
+      );
+
+      return response.data.items?.map((item: any) => item.thumbnail) || [];
+    } catch (error) {
+      this.logger.warn(`Image search failed for "${query}":`, error);
+      return [];
+    }
+  }
+
+  /**
+   * 네이버 API 결과 변환 (이미지 포함)
+   */
+  private async transformNaverResultsWithImages(items: any[]): Promise<any[]> {
+    const results = await Promise.all(
+      items.map(async (item) => {
+        const placeName = this.cleanHtml(item.title);
+        
+        // 장소명으로 이미지 검색 (비동기)
+        let images: string[] = [];
+        try {
+          images = await this.searchImages(`${placeName} ${item.category?.split('>')[0] || ''}`);
+        } catch {
+          // 이미지 검색 실패해도 계속 진행
+        }
+
+        return {
+          id: this.generateId(item),
+          name: placeName,
+          description: item.description,
+          category: item.category,
+          address: item.address || item.roadAddress,
+          latitude: this.convertMapy(item.mapy),
+          longitude: this.convertMapx(item.mapx),
+          phone: item.telephone,
+          link: item.link,
+          images,
+          metadata: {
+            originalData: item,
+          },
+        };
+      })
+    );
+
+    return results;
+  }
+
+  /**
+   * 네이버 API 결과 변환 (이미지 없이 - 빠른 응답용)
    */
   private transformNaverResults(items: any[]): any[] {
     return items.map(item => ({
@@ -216,6 +285,7 @@ export class NaverPlacesService {
       longitude: this.convertMapx(item.mapx),
       phone: item.telephone,
       link: item.link,
+      images: [], // 나중에 채워질 수 있음
       metadata: {
         originalData: item,
       },
