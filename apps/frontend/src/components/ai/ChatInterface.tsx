@@ -118,8 +118,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       // 검색 실행
       if (result.searchQuery) {
+        const searchQuery = result.searchQuery;
         setTimeout(() => {
-          onSearch(result.searchQuery);
+          onSearch(searchQuery);
         }, 500);
       }
       

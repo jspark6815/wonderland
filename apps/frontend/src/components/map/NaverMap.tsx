@@ -1,10 +1,91 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { MapMarker } from './MapMarker';
 import { useMapStore } from '@/store/mapStore';
 import { Place } from '@wonderland/shared';
 import { loadNaverMapScript } from '@/utils/loadNaverMapScript';
-import { createMarkerCluster, updateMarkerCluster, removeMarkerCluster } from '@/utils/markerClusterer';
+import { createMarkerCluster, removeMarkerCluster } from '@/utils/markerClusterer';
 import { SplashScreen } from '@/components/common/SplashScreen';
+
+// Naver Maps 타입 선언
+declare global {
+  interface Window {
+    naver: typeof naver;
+  }
+  namespace naver {
+    namespace maps {
+      class Map {
+        constructor(element: HTMLElement, options?: MapOptions);
+        getCenter(): LatLng;
+        setCenter(latlng: LatLng): void;
+        getZoom(): number;
+        setZoom(level: number): void;
+        getBounds(): LatLngBounds;
+        fitBounds(bounds: LatLngBounds, padding?: object): void;
+        destroy(): void;
+      }
+      
+      class LatLng {
+        constructor(lat: number, lng: number);
+        lat(): number;
+        lng(): number;
+      }
+      
+      class LatLngBounds {
+        constructor(sw?: LatLng, ne?: LatLng);
+        getSW(): LatLng;
+        getNE(): LatLng;
+        extend(latlng: LatLng): void;
+      }
+      
+      class Marker {
+        constructor(options?: MarkerOptions);
+        setMap(map: Map | null): void;
+        getPosition(): LatLng;
+      }
+      
+      class Point {
+        constructor(x: number, y: number);
+      }
+      
+      namespace Event {
+        function addListener(target: object, eventName: string, handler: Function): void;
+      }
+      
+      interface MapOptions {
+        center?: LatLng;
+        zoom?: number;
+        zoomControl?: boolean;
+        mapTypeControl?: boolean;
+        scaleControl?: boolean;
+        logoControl?: boolean;
+        mapDataControl?: boolean;
+        minZoom?: number;
+        maxZoom?: number;
+      }
+      
+      interface MarkerOptions {
+        position?: LatLng;
+        map?: Map | null;
+        title?: string;
+        icon?: object;
+        zIndex?: number;
+      }
+      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const MarkerClusterer: any;
+      
+      // Services namespace
+      namespace services {
+        class Places {
+          search(options: unknown, callback: (status: unknown, response: unknown) => void): void;
+        }
+        const Status: {
+          OK: string;
+          ERROR: string;
+        };
+      }
+    }
+  }
+}
 
 interface NaverMapProps {
   className?: string;
@@ -35,12 +116,12 @@ export const NaverMap: React.FC<NaverMapProps> = ({
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [useClustering, setUseClustering] = useState(true);
+  const [useClustering] = useState(true);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const splashStartTimeRef = useRef<number>(Date.now());
   
-  const { center, zoom, setCenter, setZoom } = useMapStore();
+  const { setCenter, setZoom } = useMapStore();
 
   // 네이버 지도 스크립트 로드
   useEffect(() => {

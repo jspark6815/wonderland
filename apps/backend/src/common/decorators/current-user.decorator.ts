@@ -1,16 +1,6 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Request } from 'express';
-
-/**
- * JWT 페이로드 인터페이스
- */
-export interface JwtUserPayload {
-  sub: string;
-  email: string;
-  role: string;
-  iat?: number;
-  exp?: number;
-}
+import { JwtPayload, JwtPayloadKey } from '../interfaces';
 
 /**
  * 현재 인증된 사용자 정보를 추출하는 데코레이터
@@ -18,7 +8,7 @@ export interface JwtUserPayload {
  * @example
  * ```typescript
  * @Get('profile')
- * getProfile(@CurrentUser() user: JwtUserPayload) {
+ * getProfile(@CurrentUser() user: JwtPayload) {
  *   return user;
  * }
  * 
@@ -30,9 +20,9 @@ export interface JwtUserPayload {
  * ```
  */
 export const CurrentUser = createParamDecorator(
-  (data: keyof JwtUserPayload | undefined, ctx: ExecutionContext): string | JwtUserPayload | null => {
+  (data: JwtPayloadKey | undefined, ctx: ExecutionContext): string | JwtPayload | null => {
     const request = ctx.switchToHttp().getRequest<Request>();
-    const user = (request as Request & { user?: JwtUserPayload }).user;
+    const user = (request as Request & { user?: JwtPayload }).user;
 
     if (!user) {
       return null;
@@ -47,4 +37,3 @@ export const CurrentUser = createParamDecorator(
     return user;
   },
 );
-

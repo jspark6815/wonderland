@@ -411,8 +411,12 @@ export class PlacesService {
 
   /**
    * 장소 생성
+   * @param createDto 장소 생성 정보
+   * @param userId 생성자 ID (감사/추적용)
    */
-  async createPlace(createDto: CreatePlaceDto): Promise<Place> {
+  async createPlace(createDto: CreatePlaceDto, userId: string): Promise<Place> {
+    this.logger.log(`User ${userId} is creating a new place: ${createDto.name}`);
+    
     const place = this.placeRepository.create({
       ...createDto,
       source: PlaceSource.USER,
@@ -420,9 +424,17 @@ export class PlacesService {
         type: 'Point',
         coordinates: [createDto.longitude, createDto.latitude],
       } as any,
+      // 생성자 정보 기록 (metadata에 저장)
+      metadata: {
+        createdBy: userId,
+        createdAt: new Date().toISOString(),
+      },
     } as Partial<Place>);
 
-    return this.placeRepository.save(place);
+    const savedPlace = await this.placeRepository.save(place);
+    this.logger.log(`Place created successfully: ${savedPlace.id} by user ${userId}`);
+    
+    return savedPlace;
   }
 
   /**
@@ -440,14 +452,24 @@ export class PlacesService {
 
   /**
    * 즐겨찾기 토글
+   * @param id 장소 ID
+   * @param userId 사용자 ID (권한 확인 및 감사용)
    */
-  async toggleFavorite(id: string): Promise<Place> {
+  async toggleFavorite(id: string, userId: string): Promise<Place> {
     const place = await this.placeRepository.findOne({ where: { id } });
     if (!place) {
       throw new Error('Place not found');
     }
 
+    // 즐겨찾기 상태 토글
+    const previousState = place.isFavorite;
     place.isFavorite = !place.isFavorite;
+    
+    // 감사 로그
+    this.logger.log(
+      `User ${userId} toggled favorite for place ${id}: ${previousState} → ${place.isFavorite}`
+    );
+    
     return this.placeRepository.save(place);
   }
 

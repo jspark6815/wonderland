@@ -2,7 +2,7 @@ import {
   Controller,
   Get,
   Post,
-  Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -10,8 +10,11 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { PlacesService } from './places.service';
 import { SearchHistoryService } from './services/search-history.service';
@@ -26,6 +29,8 @@ import { Public } from '../../common';
 @ApiTags('places')
 @Controller('api/v1/places')
 export class PlacesController {
+  private readonly logger = new Logger(PlacesController.name);
+
   constructor(
     private readonly placesService: PlacesService,
     private readonly searchHistoryService: SearchHistoryService,
@@ -45,8 +50,8 @@ export class PlacesController {
   ): Promise<Place[]> {
     const results = await this.placesService.searchPlaces(searchDto);
     
-    // 로그인된 사용자인 경우 검색 기록 저장
-    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    // P1-2: Express Request 타입 확장 적용 (캐스팅 불필요)
+    const userId = req.user?.sub;
     if (userId && searchDto.query) {
       this.searchHistoryService.saveSearch({
         userId,
@@ -56,8 +61,8 @@ export class PlacesController {
         longitude: searchDto.lng,
         resultCount: results.length,
       }).catch(err => {
-        // 검색 기록 저장 실패해도 검색 결과는 반환
-        console.error('Failed to save search history:', err);
+        // P2-1: console.error 대신 Logger 사용
+        this.logger.warn(`Failed to save search history: ${err.message}`);
       });
     }
     
@@ -136,7 +141,8 @@ export class PlacesController {
     @Req() req: Request,
     @Query() dto: GetSearchHistoryDto,
   ): Promise<SearchHistoryResponseDto[]> {
-    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    // P1-2: Express Request 타입 확장 적용
+    const userId = req.user?.sub;
     if (!userId) {
       return [];
     }
@@ -154,7 +160,7 @@ export class PlacesController {
   async getLastSearchHistory(
     @Req() req: Request,
   ): Promise<SearchHistoryResponseDto | null> {
-    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    const userId = req.user?.sub;
     if (!userId) {
       return null;
     }
@@ -172,7 +178,7 @@ export class PlacesController {
     @Req() req: Request,
     @Param('id') searchId: string,
   ): Promise<{ deleted: boolean }> {
-    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    const userId = req.user?.sub;
     if (!userId) {
       return { deleted: false };
     }
@@ -190,7 +196,7 @@ export class PlacesController {
   async clearSearchHistory(
     @Req() req: Request,
   ): Promise<{ deletedCount: number }> {
-    const userId = (req as Request & { user?: { sub: string } }).user?.sub;
+    const userId = req.user?.sub;
     if (!userId) {
       return { deletedCount: 0 };
     }
@@ -214,28 +220,70 @@ export class PlacesController {
     return this.placesService.getPlaceDetail(id);
   }
 
+  /**
+   * 장소 등록
+   * - 인증 필수: @Public() 제거
+   * - Rate limiting: 1분에 최대 5회
+   * - DTO 유효성 검사: 강화된 CreatePlaceDto 적용
+   */
   @Post()
-  @Public()
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: '장소 등록' })
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 1분에 최대 5회
+  @ApiOperation({ summary: '장소 등록 (인증 필수)' })
   @ApiResponse({
     status: 201,
     description: '장소 등록 완료',
     type: Place,
   })
-  async createPlace(@Body() createDto: CreatePlaceDto): Promise<Place> {
-    return this.placesService.createPlace(createDto);
+  @ApiResponse({
+    status: 401,
+    description: '인증되지 않은 사용자',
+  })
+  @ApiResponse({
+    status: 429,
+    description: 'Rate limit 초과 (1분에 최대 5회)',
+  })
+  async createPlace(
+    @Body() createDto: CreatePlaceDto,
+    @Req() req: Request,
+  ): Promise<Place> {
+    // 인증된 사용자만 장소 등록 가능
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException('장소를 등록하려면 로그인이 필요합니다.');
+    }
+    
+    return this.placesService.createPlace(createDto, userId);
   }
 
-  @Put(':id/favorite')
+  /**
+   * 즐겨찾기 토글
+   * - PATCH 사용 (리소스 부분 수정)
+   * - 사용자 ID로 권한 확인
+   */
+  @Patch(':id/favorite')
   @ApiBearerAuth()
-  @ApiOperation({ summary: '즐겨찾기 토글' })
+  @ApiOperation({ summary: '즐겨찾기 토글 (인증 필수)' })
   @ApiResponse({
     status: 200,
     description: '즐겨찾기 상태 변경',
     type: Place,
   })
-  async toggleFavorite(@Param('id') id: string): Promise<Place> {
-    return this.placesService.toggleFavorite(id);
+  @ApiResponse({
+    status: 401,
+    description: '인증되지 않은 사용자',
+  })
+  async toggleFavorite(
+    @Param('id') id: string,
+    @Req() req: Request,
+  ): Promise<Place> {
+    // 인증된 사용자만 즐겨찾기 토글 가능
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException('즐겨찾기를 변경하려면 로그인이 필요합니다.');
+    }
+    
+    return this.placesService.toggleFavorite(id, userId);
   }
 }

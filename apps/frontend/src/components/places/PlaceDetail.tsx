@@ -114,7 +114,13 @@ export const PlaceDetail: React.FC<PlaceDetailProps> = ({
               {Object.entries(place.businessHours).map(([day, hours]) => (
                 <div key={day} className="flex justify-between">
                   <span className="text-gray-600 capitalize">{day}</span>
-                  <span className="text-gray-900">{hours}</span>
+                  <span className="text-gray-900">
+                    {typeof hours === 'string' 
+                      ? hours 
+                      : hours && typeof hours === 'object' && 'open' in hours && 'close' in hours
+                        ? `${hours.open} - ${hours.close}`
+                        : '-'}
+                  </span>
                 </div>
               ))}
             </div>
