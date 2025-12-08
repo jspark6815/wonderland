@@ -511,7 +511,7 @@ export class PlacesService {
   private async saveExternalPlace(externalPlace: any): Promise<Place> {
     const place = this.placeRepository.create({
       name: externalPlace.name,
-      description: externalPlace.description,
+      description: externalPlace.description || this.generateDescription(externalPlace),
       category: this.mapCategory(externalPlace.category) as PlaceCategory,
       address: externalPlace.address,
       latitude: externalPlace.latitude,
@@ -525,28 +525,69 @@ export class PlacesService {
       rating: externalPlace.rating,
       source: PlaceSource.NAVER,
       externalId: externalPlace.id,
-      metadata: externalPlace.metadata,
+      isOpen: this.calculateIsOpen(), // 영업 상태 계산
+      metadata: {
+        ...externalPlace.metadata,
+        originalCategory: externalPlace.category, // 원본 카테고리 보존
+      },
     } as Partial<Place>);
 
     return this.placeRepository.save(place);
   }
 
   /**
-   * 카테고리 매핑
+   * 현재 영업 상태 계산 (기본 영업시간: 09:00~22:00)
+   */
+  private calculateIsOpen(): boolean {
+    const now = new Date();
+    const hour = now.getHours();
+    // 기본적으로 09시~22시 사이면 영업 중으로 간주
+    return hour >= 9 && hour < 22;
+  }
+
+  /**
+   * 장소 설명 생성
+   */
+  private generateDescription(place: any): string {
+    const parts: string[] = [];
+    if (place.category) {
+      parts.push(place.category.split('>').pop()?.trim() || place.category);
+    }
+    if (place.address) {
+      const shortAddr = place.address.split(' ').slice(0, 3).join(' ');
+      parts.push(shortAddr);
+    }
+    return parts.join(' | ') || '';
+  }
+
+  /**
+   * 카테고리 매핑 (부분 문자열 매칭 지원)
+   * 네이버 API는 "카페,디저트>베이커리" 형태로 반환
    */
   private mapCategory(externalCategory: string): PlaceCategory {
-    const categoryMap: Record<string, PlaceCategory> = {
-      '음식점': PlaceCategory.RESTAURANT,
-      '카페': PlaceCategory.CAFE,
-      '숙박': PlaceCategory.ACCOMMODATION,
-      '쇼핑': PlaceCategory.SHOPPING,
-      '문화': PlaceCategory.CULTURE,
-      '병원': PlaceCategory.HEALTHCARE,
-      '편의점': PlaceCategory.CONVENIENCE,
-      '교통': PlaceCategory.TRANSPORT,
-      '오락': PlaceCategory.ENTERTAINMENT,
-    };
-
-    return categoryMap[externalCategory] || PlaceCategory.OTHER;
+    if (!externalCategory) return PlaceCategory.OTHER;
+    
+    const categoryLower = externalCategory.toLowerCase();
+    
+    // 키워드 기반 매핑 (포함 여부로 판단)
+    const categoryKeywords: [string[], PlaceCategory][] = [
+      [['카페', 'cafe', '커피', '디저트', '베이커리', '빵'], PlaceCategory.CAFE],
+      [['음식점', '식당', '맛집', '한식', '중식', '일식', '양식', '레스토랑', 'restaurant'], PlaceCategory.RESTAURANT],
+      [['숙박', '호텔', '모텔', '펜션', '게스트하우스', 'hotel'], PlaceCategory.ACCOMMODATION],
+      [['쇼핑', '마트', '백화점', '상점', '몰', 'shop', 'mall'], PlaceCategory.SHOPPING],
+      [['문화', '박물관', '미술관', '공연', '전시', '극장', '영화'], PlaceCategory.CULTURE],
+      [['병원', '의원', '약국', '의료', 'hospital', 'clinic'], PlaceCategory.HEALTHCARE],
+      [['편의점', 'gs25', 'cu', '세븐일레븐', '이마트24', 'convenience'], PlaceCategory.CONVENIENCE],
+      [['교통', '지하철', '버스', '기차', '역', 'station', 'transport'], PlaceCategory.TRANSPORT],
+      [['오락', '게임', '노래방', '볼링', 'entertainment', '놀이'], PlaceCategory.ENTERTAINMENT],
+    ];
+    
+    for (const [keywords, category] of categoryKeywords) {
+      if (keywords.some(keyword => categoryLower.includes(keyword))) {
+        return category;
+      }
+    }
+    
+    return PlaceCategory.OTHER;
   }
 }
