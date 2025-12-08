@@ -1,4 +1,4 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
 
@@ -19,6 +19,18 @@ interface TokenResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+}
+
+/**
+ * 커스텀 API 클라이언트 인터페이스
+ * response.data를 직접 반환하도록 타입 오버라이드
+ */
+interface CustomAxiosInstance extends AxiosInstance {
+  get<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T>;
+  post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
+  put<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
+  patch<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>;
+  delete<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T>;
 }
 
 // 토큰 갱신 상태 관리
@@ -43,7 +55,7 @@ const processQueue = (error: Error | null, token: string | null = null) => {
 };
 
 /**
- * API 클라이언트
+ * API 클라이언트 (response.data 직접 반환)
  */
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -51,7 +63,7 @@ export const apiClient = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 10000,
-});
+}) as CustomAxiosInstance;
 
 // Request interceptor
 apiClient.interceptors.request.use(

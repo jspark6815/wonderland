@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { aiSearchAPI } from '@/api/ai.api';
+import { aiSearchAPI, AISearchResponse } from '@/api/ai.api';
 
-interface AISearchResult {
-  response: string;
-  searchQuery?: string;
-  places?: any[];
+/**
+ * AI 검색 결과 타입 (AISearchResponse 확장)
+ */
+export interface AISearchResult extends AISearchResponse {
+  places?: unknown[];
 }
 
 export const useAISearch = () => {
@@ -17,7 +18,7 @@ export const useAISearch = () => {
 
     try {
       const result = await aiSearchAPI(query);
-      return result;
+      return result as AISearchResult;
     } catch (err: any) {
       let errorMessage = '알 수 없는 오류가 발생했습니다.';
       

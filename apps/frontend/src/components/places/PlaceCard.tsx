@@ -112,10 +112,10 @@ export const PlaceCard: React.FC<PlaceCardProps> = ({
         </div>
 
         {/* 이미지 (있을 경우) */}
-        {place.imageUrl && (
+        {place.images && place.images.length > 0 && (
           <div className="flex-shrink-0">
             <img
-              src={place.imageUrl}
+              src={place.images[0]}
               alt={place.name}
               className="w-16 h-16 rounded-lg object-cover"
             />

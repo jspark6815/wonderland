@@ -40,7 +40,7 @@ export const useIntegratedSearch = () => {
 
     try {
       // 1. AI로 자연어 해석 시도
-      let aiInterpretation = null;
+      let aiInterpretation: IntegratedSearchResult['aiInterpretation'] = undefined;
       let searchKeywords = query;
       
       try {
