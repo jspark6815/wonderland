@@ -74,8 +74,23 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => {
+        // 배경 클릭 시에만 닫힘 (내부 클릭은 무시)
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        // 모달 내부에서 키 이벤트 전파 방지
+        e.stopPropagation();
+      }}
+    >
+      <div 
+        className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* 헤더 */}
         <div className="sticky top-0 bg-gradient-to-r from-blue-500 to-blue-600 p-4 rounded-t-2xl">
           <div className="flex items-center justify-between">
@@ -186,6 +201,8 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
                   placeholder="주차 정보 (예: 건물 지하 무료)"
                   value={feedback.parkingInfo || ''}
                   onChange={(e) => setFeedback({ ...feedback, parkingInfo: e.target.value })}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                   className="w-full px-4 py-3 bg-gray-100 rounded-xl text-sm"
                 />
               )}
@@ -289,6 +306,8 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
                 placeholder="예: 2층 창가 자리가 좋아요, 웨이팅 10분 정도..."
                 value={feedback.comment || ''}
                 onChange={(e) => setFeedback({ ...feedback, comment: e.target.value })}
+                onKeyDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
                 className="w-full px-4 py-3 bg-gray-100 rounded-xl text-sm resize-none h-24"
               />
 
