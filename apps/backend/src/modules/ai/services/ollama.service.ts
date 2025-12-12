@@ -11,6 +11,7 @@ export class OllamaService {
   private readonly model: string;
   private readonly temperature: number;
   private readonly maxTokens: number;
+  private readonly timeoutMs: number;
 
   constructor(
     private readonly httpService: HttpService,
@@ -20,6 +21,7 @@ export class OllamaService {
     this.model = this.configService.get('LLM_MODEL', 'llama3.2:3b');
     this.temperature = parseFloat(this.configService.get('LLM_TEMPERATURE', '0.7'));
     this.maxTokens = parseInt(this.configService.get('LLM_MAX_TOKENS', '2048'), 10);
+    this.timeoutMs = parseInt(this.configService.get('LLM_TIMEOUT', '30000'), 10);
   }
 
   /**
@@ -33,11 +35,17 @@ export class OllamaService {
         this.httpService.post(`${this.ollamaUrl}/api/generate`, {
           model: this.model,
           prompt,
-          temperature: this.temperature,
-          max_tokens: this.maxTokens,
+          // Ollama: JSON만 필요할 때 format을 강제하면 파싱 안정성이 크게 올라감
+          // (모델/버전에 따라 schema까지 지원하지만, 우선 "json" 강제)
+          format: 'json',
+          // Ollama 옵션은 options 객체로 전달 (max_tokens는 공식 파라미터가 아님)
+          options: {
+            temperature: this.temperature,
+            num_predict: this.maxTokens,
+          },
           stream: false,
         }, {
-          timeout: 30000, // 30초 타임아웃 (AI 응답은 시간이 걸릴 수 있음)
+          timeout: this.timeoutMs, // AI 응답은 시간이 걸릴 수 있음
         }),
       );
 
@@ -48,6 +56,16 @@ export class OllamaService {
 
       return response.data;
     } catch (error: any) {
+      const status = error?.response?.status;
+      const data = error?.response?.data;
+
+      // 모델 미존재 / 잘못된 모델명
+      if (status === 404 && typeof data?.error === 'string' && data.error.toLowerCase().includes('model')) {
+        this.logger.error(`Ollama model not found: ${this.model}. Error: ${data.error}`);
+        throw new Error(`Ollama 모델을 찾을 수 없습니다: ${this.model}. (ollama pull ${this.model} 필요)`);
+      }
+
+      // 연결 실패/타임아웃
       if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         this.logger.error(`Ollama connection failed. URL: ${this.ollamaUrl}, Error: ${error.message}`);
         throw new Error(`AI 서비스에 연결할 수 없습니다. Ollama가 실행 중인지 확인해주세요.`);
