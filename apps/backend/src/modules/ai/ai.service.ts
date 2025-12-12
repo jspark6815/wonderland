@@ -114,6 +114,94 @@ export class AiService {
   }
 
   /**
+   * 자연어 쿼리 해석 - 스트리밍(SSE)용
+   * - Ollama 스트림을 받아 JSON이 완성되는 순간 필드를 분리해서 반환
+   * - 프론트는 이 이벤트들을 받아 UI를 단계적으로 구성할 수 있음
+   */
+  async *interpretQueryStream(
+    dto: InterpretQueryDto,
+  ): AsyncGenerator<
+    | { event: 'status'; data: { stage: 'started' | 'parsing' | 'done' } }
+    | { event: 'chunk'; data: { text: string } }
+    | { event: 'intent'; data: { intent: AiQueryIntent } }
+    | { event: 'suggestedQueries'; data: { suggestedQueries: string[] } }
+    | { event: 'followUpQuestions'; data: { followUpQuestions: string[] } }
+    | { event: 'interpretation'; data: InterpretedQuery }
+    | { event: 'error'; data: { message: string } }
+  > {
+    yield { event: 'status', data: { stage: 'started' } };
+
+    // interpretQuery와 동일 프롬프트 사용
+    const prompt = `${SYSTEM_PROMPTS.QUERY_INTERPRETER}
+
+## 사용자 입력
+"${dto.query}"
+
+## 지금 분석할 입력에 대한 JSON 출력:`;
+
+    let buffer = '';
+    let emitted = false;
+
+    try {
+      for await (const chunk of this.ollamaService.generateStream(prompt, { forceJson: true })) {
+        buffer += chunk;
+        // 디버깅/진행 표시용 (너무 길면 프론트에서 무시 가능)
+        yield { event: 'chunk', data: { text: chunk } };
+
+        if (emitted) continue;
+        yield { event: 'status', data: { stage: 'parsing' } };
+
+        // 코드펜스/잡텍스트 제거 + JSON 후보 추출
+        let jsonText = buffer.trim();
+        jsonText = jsonText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();
+        const startIdx = jsonText.indexOf('{');
+        const endIdx = jsonText.lastIndexOf('}');
+        if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) continue;
+
+        const candidate = jsonText.slice(startIdx, endIdx + 1);
+        try {
+          const parsed = JSON.parse(candidate);
+
+          const result: InterpretedQuery = {
+            intent: this.normalizeIntent(parsed.intent),
+            searchQuery: parsed.searchQuery || dto.query,
+            suggestedQueries: this.normalizeSuggestedQueries(parsed.suggestedQueries, parsed.searchQuery || dto.query),
+            categories: this.normalizeCategories(parsed.categories || []),
+            keywords: parsed.keywords?.length > 0 ? parsed.keywords : [dto.query],
+            location: parsed.location || undefined,
+            atmosphere: parsed.atmosphere || [],
+            priceRange: this.normalizePriceRange(parsed.priceRange),
+            situation: parsed.situation || undefined,
+            specialRequests: parsed.specialRequests || [],
+            response: parsed.response || this.generateDefaultResponse(dto.query, parsed),
+            followUpQuestions: parsed.followUpQuestions?.length > 0
+              ? parsed.followUpQuestions.slice(0, 4)
+              : this.generateFollowUpQuestions(parsed),
+          };
+
+          emitted = true;
+
+          // 이벤트 분리 송출
+          yield { event: 'intent', data: { intent: result.intent } };
+          yield { event: 'suggestedQueries', data: { suggestedQueries: result.suggestedQueries } };
+          yield { event: 'followUpQuestions', data: { followUpQuestions: result.followUpQuestions } };
+          yield { event: 'interpretation', data: result };
+          yield { event: 'status', data: { stage: 'done' } };
+          return;
+        } catch {
+          // 아직 JSON이 완성되지 않았을 수 있음 → 계속 버퍼링
+        }
+      }
+
+      // 스트림이 끝났는데 파싱 실패
+      yield { event: 'error', data: { message: 'AI 응답(JSON) 파싱에 실패했습니다.' } };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'AI 스트리밍 해석에 실패했습니다.';
+      yield { event: 'error', data: { message } };
+    }
+  }
+
+  /**
    * 리뷰 요약
    */
   async summarizeReviews(dto: SummarizeReviewsDto): Promise<string> {

@@ -79,7 +79,10 @@ export class OllamaService {
   /**
    * 스트리밍 방식으로 텍스트 생성
    */
-  async *generateStream(prompt: string): AsyncGenerator<string> {
+  async *generateStream(
+    prompt: string,
+    opts?: { forceJson?: boolean },
+  ): AsyncGenerator<string> {
     try {
       const response = await firstValueFrom(
         this.httpService.post(
@@ -87,8 +90,11 @@ export class OllamaService {
           {
             model: this.model,
             prompt,
-            temperature: this.temperature,
-            max_tokens: this.maxTokens,
+            ...(opts?.forceJson ? { format: 'json' } : {}),
+            options: {
+              temperature: this.temperature,
+              num_predict: this.maxTokens,
+            },
             stream: true,
           },
           { responseType: 'stream' },

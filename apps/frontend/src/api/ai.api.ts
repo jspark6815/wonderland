@@ -49,6 +49,81 @@ aiClient.interceptors.response.use(
   (error) => Promise.reject(error)
 );
 
+const AI_INTERPRET_STREAM_ENABLED = import.meta.env.VITE_AI_INTERPRET_STREAM === 'true';
+
+const parseSseLines = (raw: string): Array<{ event: string; data: string }> => {
+  const events: Array<{ event: string; data: string }> = [];
+  const blocks = raw.split('\n\n').map((b) => b.trim()).filter(Boolean);
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    let event = 'message';
+    let data = '';
+    for (const line of lines) {
+      if (line.startsWith('event:')) event = line.slice('event:'.length).trim();
+      if (line.startsWith('data:')) data = line.slice('data:'.length).trim();
+    }
+    if (data) events.push({ event, data });
+  }
+  return events;
+};
+
+const aiInterpretStream = async (
+  query: string,
+  headers: Record<string, string>,
+): Promise<InterpretedQuery> => {
+  const res = await fetch(`${API_BASE_URL}/ai/interpret/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      ...headers,
+    },
+    body: JSON.stringify({ query }),
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`AI 스트림 요청 실패: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let interpretation: InterpretedQuery | null = null;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lastSep = buffer.lastIndexOf('\n\n');
+    if (lastSep === -1) continue;
+
+    const chunkText = buffer.slice(0, lastSep);
+    buffer = buffer.slice(lastSep + 2);
+
+    const parsedEvents = parseSseLines(chunkText);
+    for (const ev of parsedEvents) {
+      if (ev.event === 'error') {
+        try {
+          const payload = JSON.parse(ev.data) as { message?: string };
+          throw new Error(payload.message || 'AI 스트리밍 오류');
+        } catch {
+          throw new Error('AI 스트리밍 오류');
+        }
+      }
+      if (ev.event === 'interpretation') {
+        interpretation = JSON.parse(ev.data) as InterpretedQuery;
+      }
+    }
+  }
+
+  if (!interpretation) {
+    throw new Error('AI 스트리밍 응답에서 interpretation을 받지 못했습니다.');
+  }
+  return interpretation;
+};
+
 /**
  * 후속 질문 패턴 감지
  */
@@ -246,9 +321,12 @@ export const aiSearchAPI = async (query: string, context?: SearchContext): Promi
   try {
     // 토큰 가져오기
     const token = localStorage.getItem('token');
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
 
-    const result = await aiClient.post<unknown, InterpretedQuery>('/ai/interpret', { query: enhancedQuery }, { headers });
+    const result = AI_INTERPRET_STREAM_ENABLED
+      ? await aiInterpretStream(enhancedQuery, headers)
+      : await aiClient.post<unknown, InterpretedQuery>('/ai/interpret', { query: enhancedQuery }, { headers });
     
     // 후속 질문이면 이전 컨텍스트와 병합
     let mergedKeywords = result.keywords || [];

@@ -95,7 +95,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       // AI 응답 생성
       let responseContent = result.response;
-      responseContent += '\n\n아래에서 **검색어를 선택**하면 실제 검색이 실행돼요.';
+      responseContent += '\n\n아래에서 검색어를 선택하면 실제 검색이 실행돼요.';
       
       // 추가 정보
       if (result.categories && result.categories.length > 0) {

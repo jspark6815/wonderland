@@ -78,6 +78,32 @@ export class AiController {
     return this.aiService.interpretQuery(dto);
   }
 
+  @Post('interpret/stream')
+  @ApiOperation({ summary: '자연어 쿼리 해석 (SSE 스트리밍, 이벤트 분리)' })
+  @ApiResponse({ status: HttpStatus.OK, description: '스트리밍 시작' })
+  async interpretQueryStream(@Body() dto: InterpretQueryDto, @Res() res: Response) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const writeEvent = (event: string, data: unknown) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      for await (const ev of this.aiService.interpretQueryStream(dto)) {
+        writeEvent(ev.event, ev.data);
+      }
+      writeEvent('done', { ok: true });
+    } catch {
+      // 에러 상세 정보는 노출하지 않음
+      writeEvent('error', { message: 'AI 해석 스트리밍 중 오류가 발생했습니다.' });
+    } finally {
+      res.end();
+    }
+  }
+
   @Post('search')
   @ApiOperation({ summary: 'AI 맞춤 검색 - 자연어 해석 후 DB에서 검색' })
   @ApiResponse({ status: HttpStatus.OK, description: 'AI 맞춤 검색 결과' })
