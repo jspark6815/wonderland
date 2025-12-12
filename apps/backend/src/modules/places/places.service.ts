@@ -982,32 +982,66 @@ export class PlacesService {
 
   /**
    * 카테고리 매핑 (부분 문자열 매칭 지원)
-   * 네이버 API는 "카페,디저트>베이커리" 형태로 반환
+   * 네이버 API는 "카페,디저트>베이커리" 또는 "음식점>한식>백반,가정식" 형태로 반환
    */
   private mapCategory(externalCategory: string): PlaceCategory {
     if (!externalCategory) return PlaceCategory.OTHER;
     
     const categoryLower = externalCategory.toLowerCase();
     
-    // 키워드 기반 매핑 (포함 여부로 판단)
+    // 로그 추가 (디버깅용)
+    this.logger.debug(`Mapping category: "${externalCategory}"`);
+    
+    // 키워드 기반 매핑 (우선순위 순서대로 - 더 구체적인 것부터)
     const categoryKeywords: [string[], PlaceCategory][] = [
-      [['카페', 'cafe', '커피', '디저트', '베이커리', '빵'], PlaceCategory.CAFE],
-      [['음식점', '식당', '맛집', '한식', '중식', '일식', '양식', '레스토랑', 'restaurant'], PlaceCategory.RESTAURANT],
-      [['숙박', '호텔', '모텔', '펜션', '게스트하우스', 'hotel'], PlaceCategory.ACCOMMODATION],
-      [['쇼핑', '마트', '백화점', '상점', '몰', 'shop', 'mall'], PlaceCategory.SHOPPING],
-      [['문화', '박물관', '미술관', '공연', '전시', '극장', '영화'], PlaceCategory.CULTURE],
-      [['병원', '의원', '약국', '의료', 'hospital', 'clinic'], PlaceCategory.HEALTHCARE],
-      [['편의점', 'gs25', 'cu', '세븐일레븐', '이마트24', 'convenience'], PlaceCategory.CONVENIENCE],
-      [['교통', '지하철', '버스', '기차', '역', 'station', 'transport'], PlaceCategory.TRANSPORT],
-      [['오락', '게임', '노래방', '볼링', 'entertainment', '놀이'], PlaceCategory.ENTERTAINMENT],
+      // 카페/디저트 (우선 매칭 - "카페,디저트" 형태 먼저)
+      [['카페', 'cafe', 'coffee', '커피전문점', '커피숍', '디저트카페', '베이커리', '브런치카페', '케이크', '빙수', '아이스크림'], PlaceCategory.CAFE],
+      
+      // 음식점 (다양한 음식 카테고리)
+      [['음식점', '식당', '맛집', '한식', '중식', '일식', '양식', '분식', '패스트푸드', '치킨', '피자', '햄버거', 
+        '레스토랑', 'restaurant', '고깃집', '삼겹살', '곱창', '족발', '보쌈', '국밥', '냉면', '칼국수',
+        '파스타', '스테이크', '초밥', '라멘', '우동', '짜장', '짬뽕', '탕수육', '불고기', '비빔밥',
+        '백반', '정식', '해물', '생선', '회', '횟집', '구이', '찌개', '전골', '국수', '면', '밥',
+        '뷔페', 'buffet', '아시아음식', '태국', '베트남', '인도', '멕시코', '이탈리아'], PlaceCategory.RESTAURANT],
+      
+      // 술집/바
+      [['술집', '바', 'bar', '호프', '이자카야', '포차', '주점', '와인바', '칵테일', '맥주', '소주방', '막걸리', 
+        '펍', 'pub', '클럽', '라운지'], PlaceCategory.ENTERTAINMENT],
+      
+      // 숙박
+      [['숙박', '호텔', '모텔', '펜션', '게스트하우스', 'hotel', 'motel', '리조트', '민박', '여관', '에어비앤비'], PlaceCategory.ACCOMMODATION],
+      
+      // 쇼핑
+      [['쇼핑', '마트', '백화점', '상점', '몰', 'shop', 'mall', '슈퍼', '시장', '아울렛', '면세점', 
+        '편집샵', '잡화', '의류', '옷가게', '화장품', '서점', '문구'], PlaceCategory.SHOPPING],
+      
+      // 문화/관광
+      [['문화', '박물관', '미술관', '공연', '전시', '극장', '영화', '관광', '여행', '공원', '명소', 
+        '유적지', '사찰', '성당', '교회', '절', '궁', '타워', '전망대'], PlaceCategory.CULTURE],
+      
+      // 의료
+      [['병원', '의원', '약국', '의료', 'hospital', 'clinic', '치과', '한의원', '피부과', '성형외과', 
+        '정형외과', '내과', '소아과', '안과', '이비인후과', '산부인과'], PlaceCategory.HEALTHCARE],
+      
+      // 편의점
+      [['편의점', 'gs25', 'cu', '세븐일레븐', '이마트24', 'convenience', '미니스톱', 'gs리테일'], PlaceCategory.CONVENIENCE],
+      
+      // 교통
+      [['교통', '지하철', '버스', '기차', '역', 'station', 'transport', '터미널', '공항', '주차장', '주유소'], PlaceCategory.TRANSPORT],
+      
+      // 오락/레저
+      [['오락', '게임', '노래방', '볼링', 'entertainment', '놀이', 'pc방', '당구', '스포츠', '헬스',
+        '피트니스', '수영', '골프', '테니스', '요가', '필라테스', '사우나', '찜질방', '스파', '마사지'], PlaceCategory.ENTERTAINMENT],
     ];
     
     for (const [keywords, category] of categoryKeywords) {
       if (keywords.some(keyword => categoryLower.includes(keyword))) {
+        this.logger.debug(`Matched category: ${category}`);
         return category;
       }
     }
     
+    this.logger.debug(`No match found, returning OTHER`);
     return PlaceCategory.OTHER;
   }
 }
