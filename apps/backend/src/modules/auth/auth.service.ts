@@ -164,7 +164,13 @@ export class AuthService {
    * 로그아웃
    */
   async logout(userId: string): Promise<void> {
-    await this.userRepository.update(userId, { refreshToken: undefined });
+    if (!userId || userId.trim().length === 0) {
+      throw new UnauthorizedException('인증 정보가 없습니다.');
+    }
+
+    // refreshToken 제거 (NULL로 저장)
+    // - 엔티티 타입이 string | undefined 인 관계로 TypeORM의 함수 형태를 사용해 NULL 설정
+    await this.userRepository.update({ id: userId }, { refreshToken: () => 'NULL' });
     this.logger.log(`User logged out: ${userId}`);
   }
 

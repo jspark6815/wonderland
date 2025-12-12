@@ -6,6 +6,7 @@ import {
   HttpStatus,
   UseGuards,
   Get,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService, TokenResponse } from './auth.service';
@@ -52,7 +53,10 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: '로그아웃' })
   @ApiResponse({ status: HttpStatus.OK, description: '로그아웃 성공' })
-  async logout(@CurrentUser('sub') userId: string): Promise<{ message: string }> {
+  async logout(@CurrentUser('sub') userId: string | null): Promise<{ message: string }> {
+    if (!userId) {
+      throw new UnauthorizedException('인증 정보가 없습니다.');
+    }
     await this.authService.logout(userId);
     return { message: '로그아웃되었습니다.' };
   }
