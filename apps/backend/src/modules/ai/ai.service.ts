@@ -6,7 +6,11 @@ import { InterpretQueryDto } from './dto/interpret-query.dto';
 
 // JSON 스키마 정의 (고정)
 const JSON_SCHEMA = {
+  intent:
+    'string (AI 응답 의도: "SUGGEST_QUERY" | "REFINE_CONTEXT" | "NEED_MORE_INFO")',
   searchQuery: 'string (검색 키워드, 예: "강남 조용한 카페")',
+  suggestedQueries:
+    'string[] (사용자가 바로 검색에 사용할 수 있는 짧은 검색어 후보 1~3개. 대화문장 금지)',
   categories: 'string[] (카테고리 목록: 카페, 음식점, 술집, 쇼핑, 병원, 숙소, 관광지 중 선택)',
   keywords: 'string[] (검색 키워드 3-5개)',
   location: 'string | null (지역명, 예: "강남역", "홍대", null)',
@@ -38,6 +42,18 @@ const SYSTEM_PROMPTS = {
 ## 필수 스키마 (이 형식을 정확히 따르세요):
 ${JSON.stringify(JSON_SCHEMA, null, 2)}
 
+## intent 값 정의 (정확히 이 중 하나):
+- SUGGEST_QUERY: 사용자가 말한 문장을 그대로 검색하지 말고, 짧고 검색용으로 정제된 검색어 후보를 제시해야 함
+- REFINE_CONTEXT: 이전 검색 맥락(추가 조건)이 들어온 경우. 검색어 후보를 '조건 반영' 형태로 제시해야 함
+- NEED_MORE_INFO: 검색을 바로 하기 어렵다면(지역/카테고리 불명확 등) 질문으로 추가 정보를 얻어야 함
+
+## suggestedQueries 생성 규칙:
+- 사용자가 바로 검색에 넣을 수 있는 '짧은' 검색어 1~3개
+- 반드시 한국어 중심
+- 사용자 발화의 조사/요청문(예: "~찾고 싶어", "~추천해줘")는 제거
+- 대화문장 금지 (예: "숭실대역 카페 찾고 싶어." 금지)
+- 예: "숭실대역 카페", "숭실대역 조용한 카페", "숭실대역 디저트 카페"
+
 ## 카테고리 값 (정확히 이 중에서 선택):
 - 카페, 음식점, 술집, 쇼핑, 병원, 숙소, 관광지, 편의점, 문화시설
 
@@ -58,8 +74,12 @@ ${JSON.stringify(JSON_SCHEMA, null, 2)}
 반드시 유효한 JSON만 출력하세요. 다른 텍스트는 포함하지 마세요.`,
 };
 
+export type AiQueryIntent = 'SUGGEST_QUERY' | 'REFINE_CONTEXT' | 'NEED_MORE_INFO';
+
 export interface InterpretedQuery {
+  intent: AiQueryIntent;
   searchQuery: string;
+  suggestedQueries: string[];
   categories: string[];
   keywords: string[];
   location?: string;
@@ -131,7 +151,9 @@ ${dto.reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 입력: "강남역 근처 조용히 작업하기 좋은 카페"
 출력:
 {
+  "intent": "SUGGEST_QUERY",
   "searchQuery": "강남역 조용한 작업 카페",
+  "suggestedQueries": ["강남역 조용한 작업 카페", "강남역 카페 작업", "강남역 콘센트 카페"],
   "categories": ["카페"],
   "keywords": ["강남역", "조용한", "작업", "카페", "노트북"],
   "location": "강남역",
@@ -147,7 +169,9 @@ ${dto.reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 입력: "오늘 저녁 데이트하기 좋은 분위기 있는 레스토랑"
 출력:
 {
+  "intent": "SUGGEST_QUERY",
   "searchQuery": "데이트 분위기 레스토랑",
+  "suggestedQueries": ["데이트 분위기 레스토랑", "저녁 데이트 레스토랑", "로맨틱 레스토랑"],
   "categories": ["음식점"],
   "keywords": ["데이트", "분위기", "로맨틱", "저녁", "레스토랑"],
   "location": null,
@@ -180,7 +204,9 @@ ${dto.reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}
       
       // 필수 필드 보완
       const result: InterpretedQuery = {
+        intent: this.normalizeIntent(parsed.intent),
         searchQuery: parsed.searchQuery || dto.query,
+        suggestedQueries: this.normalizeSuggestedQueries(parsed.suggestedQueries, parsed.searchQuery || dto.query),
         categories: this.normalizeCategories(parsed.categories || []),
         keywords: parsed.keywords?.length > 0 ? parsed.keywords : [dto.query],
         location: parsed.location || undefined,
@@ -350,7 +376,9 @@ ${placesInfo}
     keywords.push(...words.slice(0, 5));
 
     const result = {
+      intent: 'SUGGEST_QUERY' as const,
       searchQuery: keywords.length > 0 ? keywords.join(' ') : query,
+      suggestedQueries: [keywords.length > 0 ? keywords.join(' ') : query],
       categories,
       keywords: keywords.length > 0 ? keywords : [query],
       location,
@@ -435,5 +463,25 @@ ${placesInfo}
 
     // 중복 제거 후 4개까지 반환
     return [...new Set(questions)].slice(0, 4);
+  }
+
+  private normalizeIntent(intent?: unknown): AiQueryIntent {
+    if (typeof intent !== 'string') return 'SUGGEST_QUERY';
+    if (intent === 'SUGGEST_QUERY' || intent === 'REFINE_CONTEXT' || intent === 'NEED_MORE_INFO') {
+      return intent;
+    }
+    return 'SUGGEST_QUERY';
+  }
+
+  private normalizeSuggestedQueries(suggested: unknown, fallbackQuery: string): string[] {
+    if (!Array.isArray(suggested)) return [fallbackQuery];
+    const cleaned = suggested
+      .filter((q) => typeof q === 'string')
+      .map((q) => q.trim())
+      .filter((q) => q.length > 0)
+      // 과도하게 긴 문장 제거 (검색어 후보는 짧게)
+      .filter((q) => q.length <= 50);
+
+    return cleaned.length > 0 ? cleaned.slice(0, 3) : [fallbackQuery];
   }
 }

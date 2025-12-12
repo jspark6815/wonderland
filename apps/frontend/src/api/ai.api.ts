@@ -11,8 +11,10 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/
  * AI 검색 응답 (프론트엔드 전용)
  */
 export interface AISearchResponse {
+  intent?: 'SUGGEST_QUERY' | 'REFINE_CONTEXT' | 'NEED_MORE_INFO';
   response: string;
   searchQuery: string;
+  suggestedQueries?: string[];
   keywords: string[];
   categories: string[];
   location?: string;
@@ -113,8 +115,10 @@ const fallbackInterpret = (query: string, context?: SearchContext): AISearchResp
 
     const searchQuery = [...new Set(keywords)].join(' ');
     return {
+      intent: 'REFINE_CONTEXT',
       response: `${newCondition?.condition || '조건'}을 추가해서 다시 찾아볼게요! 🔍`,
       searchQuery: searchQuery || context.lastSearchQuery,
+      suggestedQueries: [searchQuery || context.lastSearchQuery],
       keywords: [...new Set(keywords)],
       categories: [...new Set(categories)],
       location,
@@ -172,10 +176,12 @@ const fallbackInterpret = (query: string, context?: SearchContext): AISearchResp
   const uniqueKeywords = [...new Set(keywords)];
   
   return {
+    intent: 'SUGGEST_QUERY',
     response: categories.length > 0 
       ? `${categories.join(', ')}을(를) 찾아볼게요! 🔍`
       : `"${query}"로 검색해볼게요! 🔍`,
     searchQuery: uniqueKeywords.length > 0 ? uniqueKeywords.join(' ') : query,
+    suggestedQueries: [uniqueKeywords.length > 0 ? uniqueKeywords.join(' ') : query],
     keywords: uniqueKeywords.length > 0 ? uniqueKeywords : [query],
     categories,
     location,
@@ -256,8 +262,10 @@ export const aiSearchAPI = async (query: string, context?: SearchContext): Promi
     }
 
     return {
+      intent: result.intent,
       response: result.response || `"${query}"를 검색해볼게요! 🔍`,
       searchQuery: result.searchQuery || (mergedKeywords.length > 0 ? mergedKeywords.join(' ') : query),
+      suggestedQueries: result.suggestedQueries || (result.searchQuery ? [result.searchQuery] : []),
       keywords: mergedKeywords.length > 0 ? mergedKeywords : [query],
       categories: mergedCategories,
       location: mergedLocation,

@@ -2,7 +2,9 @@
  * AI 쿼리 해석 결과
  */
 export interface InterpretedQuery {
+  intent?: 'SUGGEST_QUERY' | 'REFINE_CONTEXT' | 'NEED_MORE_INFO';
   searchQuery: string;
+  suggestedQueries?: string[];
   categories: string[];
   keywords: string[];
   location?: string;

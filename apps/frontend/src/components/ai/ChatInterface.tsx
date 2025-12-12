@@ -7,7 +7,10 @@ export interface ChatMessage {
   type: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  // AI가 제안하는 "다음 질문" (맥락/조건 보강)
   suggestions?: string[];
+  // AI가 제안하는 "검색어 후보" (사용자가 클릭 시에만 SearchBar 검색 실행)
+  searchSuggestions?: string[];
 }
 
 // 초기 메시지 생성 함수 export
@@ -92,11 +95,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       // AI 응답 생성
       let responseContent = result.response;
-      
-      // 검색 정보 추가
-      if (result.searchQuery && result.searchQuery !== messageText) {
-        responseContent += `\n\n🔍 "${result.searchQuery}"로 검색할게요!`;
-      }
+      responseContent += '\n\n아래에서 **검색어를 선택**하면 실제 검색이 실행돼요.';
       
       // 추가 정보
       if (result.categories && result.categories.length > 0) {
@@ -111,23 +110,25 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         ? result.followUpQuestions
         : DEFAULT_FOLLOW_UP;
 
+      const searchSuggestions =
+        (result.suggestedQueries && result.suggestedQueries.length > 0
+          ? result.suggestedQueries
+          : result.searchQuery
+            ? [result.searchQuery]
+            : [])
+          .map((q) => q.trim())
+          .filter((q) => q.length > 0);
+
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         content: responseContent,
         timestamp: new Date(),
         suggestions: followUpQuestions,
+        searchSuggestions,
       };
       
       setMessages(prev => [...prev, assistantMessage]);
-      
-      // 검색 실행
-      if (result.searchQuery) {
-        const searchQuery = result.searchQuery;
-        setTimeout(() => {
-          onSearch(searchQuery);
-        }, 500);
-      }
       
     } catch (error: any) {
       const errMsg: ChatMessage = {
@@ -212,17 +213,38 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
             
             {/* 팔로업 제안 버튼 */}
-            {message.type === 'assistant' && message.suggestions && messages[messages.length - 1].id === message.id && !isLoading && (
-              <div className="flex flex-wrap gap-2 mt-3 ml-10">
-                {message.suggestions.map((suggestion, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleFollowUp(suggestion)}
-                    className="px-3 py-1.5 text-xs bg-white border border-gray-200 text-gray-600 rounded-full hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition-all"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
+            {message.type === 'assistant' && messages[messages.length - 1].id === message.id && !isLoading && (
+              <div className="mt-3 ml-10 space-y-2">
+                {/* 검색어 추천 */}
+                {message.searchSuggestions && message.searchSuggestions.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {message.searchSuggestions.slice(0, 3).map((q, idx) => (
+                      <button
+                        key={`search-${idx}`}
+                        onClick={() => onSearch(q)}
+                        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all"
+                        title="이 검색어로 지도에서 검색"
+                      >
+                        🔍 {q}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* 다음 질문(맥락/조건 보강) */}
+                {message.suggestions && message.suggestions.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {message.suggestions.map((suggestion, idx) => (
+                      <button
+                        key={`follow-${idx}`}
+                        onClick={() => handleFollowUp(suggestion)}
+                        className="px-3 py-1.5 text-xs bg-white border border-gray-200 text-gray-600 rounded-full hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition-all"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
