@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Place } from '@wonderland/shared';
+import { getCategoryIcon, formatCategory } from '@/utils/categoryUtils';
 
 interface PlaceCardProps {
   place: Place;
@@ -7,35 +8,6 @@ interface PlaceCardProps {
   onClick: () => void;
   className?: string;
 }
-
-// 카테고리별 기본 이미지 (SVG placeholder)
-const getCategoryIcon = (category?: string) => {
-  const cat = category?.toUpperCase() || '';
-  if (cat.includes('CAFE') || cat.includes('카페')) {
-    return '☕';
-  } else if (cat.includes('RESTAURANT') || cat.includes('음식')) {
-    return '🍽️';
-  } else if (cat.includes('SHOPPING') || cat.includes('쇼핑')) {
-    return '🛍️';
-  } else if (cat.includes('CULTURE') || cat.includes('문화')) {
-    return '🎭';
-  } else if (cat.includes('HEALTHCARE') || cat.includes('병원')) {
-    return '🏥';
-  } else if (cat.includes('CONVENIENCE') || cat.includes('편의')) {
-    return '🏪';
-  } else if (cat.includes('ACCOMMODATION') || cat.includes('숙박')) {
-    return '🏨';
-  }
-  return '📍';
-};
-
-// 카테고리 한글 변환
-const formatCategory = (category?: string) => {
-  if (!category) return '';
-  // "카페,디저트>베이커리" 형태에서 마지막 부분만 추출
-  const parts = category.split('>');
-  return parts[parts.length - 1]?.trim() || category;
-};
 
 export const PlaceCard: React.FC<PlaceCardProps> = ({
   place,

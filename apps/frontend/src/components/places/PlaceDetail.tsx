@@ -1,24 +1,12 @@
 import React, { useState } from 'react';
 import { Place } from '@wonderland/shared';
+import { getCategoryIcon, formatCategory } from '@/utils/categoryUtils';
 
 interface PlaceDetailProps {
   place: Place;
   onClose: () => void;
   className?: string;
 }
-
-// 카테고리별 기본 이미지
-const getCategoryPlaceholder = (category?: string) => {
-  const cat = category?.toUpperCase() || '';
-  if (cat.includes('CAFE') || cat.includes('카페')) return '☕';
-  if (cat.includes('RESTAURANT') || cat.includes('음식')) return '🍽️';
-  if (cat.includes('SHOPPING') || cat.includes('쇼핑')) return '🛍️';
-  if (cat.includes('CULTURE') || cat.includes('문화')) return '🎭';
-  if (cat.includes('HEALTHCARE') || cat.includes('병원')) return '🏥';
-  if (cat.includes('CONVENIENCE') || cat.includes('편의')) return '🏪';
-  if (cat.includes('ACCOMMODATION') || cat.includes('숙박')) return '🏨';
-  return '📍';
-};
 
 export const PlaceDetail: React.FC<PlaceDetailProps> = ({
   place,
@@ -103,7 +91,7 @@ export const PlaceDetail: React.FC<PlaceDetailProps> = ({
         ) : (
           /* 이미지 없을 때 플레이스홀더 */
           <div className="h-40 bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
-            <span className="text-6xl">{getCategoryPlaceholder(place.category)}</span>
+            <span className="text-6xl">{getCategoryIcon(place.category)}</span>
           </div>
         )}
         
@@ -127,10 +115,11 @@ export const PlaceDetail: React.FC<PlaceDetailProps> = ({
       {/* 콘텐츠 */}
       <div className="flex-1 overflow-y-auto p-4">
         {/* 카테고리 및 평점 */}
-        <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-4 mb-4 flex-wrap">
           {place.category && (
-            <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm">
-              {place.category}
+            <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm">
+              <span>{getCategoryIcon(place.category)}</span>
+              <span>{formatCategory(place.category)}</span>
             </span>
           )}
           
