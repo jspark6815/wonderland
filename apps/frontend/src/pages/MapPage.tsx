@@ -4,6 +4,7 @@ import { PlaceList } from '@/components/places/PlaceList';
 import { PlaceDetail } from '@/components/places/PlaceDetail';
 import { ChatInterface, ChatMessage, createInitialMessages } from '@/components/ai/ChatInterface';
 import { UserMenu } from '@/components/auth';
+import { FeedbackPrompt } from '@/components/feedback';
 import { useIntegratedSearch } from '@/hooks/useIntegratedSearch';
 import { useAuthStore } from '@/store/authStore';
 import { Place } from '@wonderland/shared';
@@ -12,6 +13,7 @@ import {
   getPlaceDetailByLocationAPI, 
   getPlaceDetailAPI,
   getLastSearchHistoryAPI,
+  trackPlaceClickAPI,
   SearchHistoryItem,
 } from '@/api/places.api';
 
@@ -122,6 +124,17 @@ export const MapPage: React.FC = () => {
       }
       
       setSearchResults(results);
+      
+      // 검색 결과가 있으면 첫 번째 장소로 지도 이동
+      if (results.length > 0) {
+        const first = results[0];
+        const lat = typeof first.latitude === 'string' ? parseFloat(first.latitude) : first.latitude;
+        const lng = typeof first.longitude === 'string' ? parseFloat(first.longitude) : first.longitude;
+        
+        if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
+          setMapCenter({ lat, lng });
+        }
+      }
     } catch {
       setSearchResults([]);
     } finally {
@@ -129,46 +142,68 @@ export const MapPage: React.FC = () => {
     }
   }, [search, mapCenter, mapBounds]);
 
-  // 장소 선택
-  const handlePlaceSelect = useCallback(async (place: Place) => {
+  // 장소 선택 (지도 핀 이동 및 InfoWindow 표시)
+  const handlePlaceSelect = useCallback((place: Place) => {
+    setSelectedPlace(place);
+    
+    // 지도 중심 이동
+    if (place.latitude && place.longitude) {
+      const lat = typeof place.latitude === 'string' ? parseFloat(place.latitude) : place.latitude;
+      const lng = typeof place.longitude === 'string' ? parseFloat(place.longitude) : place.longitude;
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setMapCenter({ lat, lng });
+      }
+    }
+  }, []);
+
+  // 상세 보기 모달 열기 (InfoWindow 클릭 시)
+  const handleDetailOpen = useCallback(async () => {
+    if (!selectedPlace) return;
+    
     setIsLoadingDetail(true);
     setShowDetail(true);
     
     try {
       let detailPlace: Place;
       
-      if (place.id) {
+      if (selectedPlace.id) {
         try {
-          detailPlace = await getPlaceDetailAPI(place.id);
+          detailPlace = await getPlaceDetailAPI(selectedPlace.id);
         } catch (error) {
-          if (place.latitude && place.longitude) {
+          if (selectedPlace.latitude && selectedPlace.longitude) {
             detailPlace = await getPlaceDetailByLocationAPI(
-              place.name,
-              typeof place.latitude === 'string' ? parseFloat(place.latitude) : place.latitude,
-              typeof place.longitude === 'string' ? parseFloat(place.longitude) : place.longitude
+              selectedPlace.name,
+              typeof selectedPlace.latitude === 'string' ? parseFloat(selectedPlace.latitude) : selectedPlace.latitude,
+              typeof selectedPlace.longitude === 'string' ? parseFloat(selectedPlace.longitude) : selectedPlace.longitude
             );
           } else {
             throw error;
           }
         }
-      } else if (place.latitude && place.longitude) {
+      } else if (selectedPlace.latitude && selectedPlace.longitude) {
         detailPlace = await getPlaceDetailByLocationAPI(
-          place.name,
-          typeof place.latitude === 'string' ? parseFloat(place.latitude) : place.latitude,
-          typeof place.longitude === 'string' ? parseFloat(place.longitude) : place.longitude
+          selectedPlace.name,
+          typeof selectedPlace.latitude === 'string' ? parseFloat(selectedPlace.latitude) : selectedPlace.latitude,
+          typeof selectedPlace.longitude === 'string' ? parseFloat(selectedPlace.longitude) : selectedPlace.longitude
         );
       } else {
-        detailPlace = place;
+        detailPlace = selectedPlace;
       }
       
       setSelectedPlace(detailPlace);
+
+      // 피드백 프롬프트를 위한 장소 클릭 추적 (로그인 사용자만)
+      if (detailPlace.id && isAuthenticated) {
+        trackPlaceClickAPI(detailPlace.id).catch(() => {
+          // 추적 실패 무시
+        });
+      }
     } catch {
       // 상세 정보 조회 실패 시 기본 정보 표시
-      setSelectedPlace(place);
     } finally {
       setIsLoadingDetail(false);
     }
-  }, []);
+  }, [selectedPlace, isAuthenticated]);
 
   // 지도 영역 변경 시 bounds 업데이트 + 재검색 버튼 표시
   const handleBoundsChange = useCallback(async (bounds: {
@@ -262,7 +297,10 @@ export const MapPage: React.FC = () => {
       {/* 지도 (전체 화면) */}
       <NaverMap
         places={displayPlaces}
+        center={mapCenter}
         onPlaceClick={handlePlaceSelect}
+        selectedPlace={selectedPlace}
+        onDetailClick={handleDetailOpen}
         onBoundsChange={handleBoundsChange}
         enableAutoSearch={!searchQuery.trim() && !selectedCategory}
         fitBoundsOnSearch={false} // 검색해도 지도 이동 안함 (사용자가 보고 있는 영역 유지)
@@ -328,7 +366,7 @@ export const MapPage: React.FC = () => {
                   }
                 }}
                 placeholder="장소, 주소 검색"
-                className="flex-1 px-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none"
+                className="flex-1 px-3 py-2.5 bg-white text-gray-900 placeholder-gray-400 focus:outline-none"
               />
               {searchQuery && (
                 <button
@@ -500,6 +538,17 @@ export const MapPage: React.FC = () => {
                 setSearchQuery(query);
                 handleSearch(query, selectedCategory);
               }}
+              onPlaceClick={(place) => {
+                setShowAIChat(false);
+                // 선택된 장소로 지도 이동 및 상세 정보 표시
+                if (place.latitude && place.longitude) {
+                  setMapCenter({ 
+                    lat: typeof place.latitude === 'string' ? parseFloat(place.latitude) : place.latitude, 
+                    lng: typeof place.longitude === 'string' ? parseFloat(place.longitude) : place.longitude 
+                  });
+                }
+                handlePlaceSelect(place);
+              }}
               className="h-full"
               messages={chatMessages}
               setMessages={setChatMessages}
@@ -547,6 +596,9 @@ export const MapPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 방문 피드백 프롬프트 (로그인된 사용자에게만 표시) */}
+      <FeedbackPrompt />
     </div>
   );
 };

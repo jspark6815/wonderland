@@ -45,6 +45,12 @@ declare global {
       class Point {
         constructor(x: number, y: number);
       }
+
+      class InfoWindow {
+        constructor(options: InfoWindowOptions);
+        open(map: Map, marker: Marker): void;
+        close(): void;
+      }
       
       namespace Event {
         function addListener(target: object, eventName: string, handler: Function): void;
@@ -68,6 +74,16 @@ declare global {
         title?: string;
         icon?: object;
         zIndex?: number;
+      }
+
+      interface InfoWindowOptions {
+        content: string | HTMLElement;
+        borderWidth?: number;
+        backgroundColor?: string;
+        anchorSize?: { width: number; height: number };
+        anchorSkew?: boolean;
+        pixelOffset?: Point;
+        disableAnchor?: boolean;
       }
       
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,6 +115,9 @@ interface NaverMapProps {
   }) => void;
   enableAutoSearch?: boolean;
   fitBoundsOnSearch?: boolean; // 검색 결과에 맞게 지도 범위 조정 여부
+  center?: { lat: number; lng: number }; // 지도 중심 좌표 (외부 제어용)
+  selectedPlace?: Place | null; // 선택된 장소 (InfoWindow 표시용)
+  onDetailClick?: () => void; // InfoWindow 클릭 시 이벤트
 }
 
 export const NaverMap: React.FC<NaverMapProps> = ({
@@ -108,12 +127,16 @@ export const NaverMap: React.FC<NaverMapProps> = ({
   onBoundsChange,
   enableAutoSearch = false,
   fitBoundsOnSearch = false,
+  center,
+  selectedPlace,
+  onDetailClick,
 }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const naverMapRef = useRef<naver.maps.Map | null>(null);
   const markersRef = useRef<naver.maps.Marker[]>([]);
   const currentLocationMarkerRef = useRef<naver.maps.Marker | null>(null);
   const clustererRef = useRef<any>(null);
+  const infoWindowRef = useRef<naver.maps.InfoWindow | null>(null);
   const prevPlacesLengthRef = useRef<number>(0); // 이전 places 개수 (fitBounds 판단용)
   const boundsChangeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
@@ -125,6 +148,88 @@ export const NaverMap: React.FC<NaverMapProps> = ({
   const splashStartTimeRef = useRef<number>(Date.now());
   
   const { setCenter, setZoom } = useMapStore();
+
+  // 외부에서 전달된 center가 변경되면 지도 이동
+  useEffect(() => {
+    if (naverMapRef.current && center) {
+      const currentCenter = naverMapRef.current.getCenter();
+      const latDiff = Math.abs(currentCenter.lat() - center.lat);
+      const lngDiff = Math.abs(currentCenter.lng() - center.lng);
+      
+      // 유의미한 차이가 있을 때만 이동 (무한 루프 방지)
+      if (latDiff > 0.00001 || lngDiff > 0.00001) {
+        naverMapRef.current.setCenter(new window.naver.maps.LatLng(center.lat, center.lng));
+      }
+    }
+  }, [center]);
+
+  // 선택된 장소 변경 시 InfoWindow 표시
+  useEffect(() => {
+    if (!naverMapRef.current || !window.naver?.maps) return;
+
+    // 기존 InfoWindow 닫기
+    if (infoWindowRef.current) {
+      infoWindowRef.current.close();
+      infoWindowRef.current = null;
+    }
+
+    if (selectedPlace) {
+      const lat = typeof selectedPlace.latitude === 'string' ? parseFloat(selectedPlace.latitude) : selectedPlace.latitude;
+      const lng = typeof selectedPlace.longitude === 'string' ? parseFloat(selectedPlace.longitude) : selectedPlace.longitude;
+
+      if (isNaN(lat) || isNaN(lng)) return;
+
+      // 해당 위치의 마커 찾기
+      const targetMarker = markersRef.current.find(m => {
+        const pos = m.getPosition();
+        return Math.abs(pos.lat() - lat) < 0.00001 && Math.abs(pos.lng() - lng) < 0.00001;
+      });
+
+      if (targetMarker) {
+        const category = selectedPlace.category?.split('>').pop() || '장소';
+        const contentString = `
+          <div style="
+            padding: 12px 16px;
+            min-width: 200px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            cursor: pointer;
+            border: 1px solid #f3f4f6;
+          " id="infowindow-content">
+            <h4 style="margin: 0 0 4px 0; font-weight: 700; font-size: 15px; color: #111827;">${selectedPlace.name}</h4>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span style="font-size: 12px; color: #6b7280;">${category}</span>
+              <span style="font-size: 12px; color: #3b82f6; font-weight: 600;">상세보기 ></span>
+            </div>
+          </div>
+        `;
+
+        const infoWindow = new window.naver.maps.InfoWindow({
+          content: contentString,
+          borderWidth: 0,
+          backgroundColor: "transparent",
+          anchorSize: { width: 12, height: 12 },
+          anchorSkew: true,
+          pixelOffset: new window.naver.maps.Point(0, -5),
+          disableAnchor: false,
+        });
+
+        infoWindow.open(naverMapRef.current, targetMarker);
+        infoWindowRef.current = infoWindow;
+
+        // 클릭 이벤트 바인딩 (DOM 생성 후)
+        setTimeout(() => {
+          const el = document.getElementById('infowindow-content');
+          if (el) {
+            el.addEventListener('click', () => {
+              if (onDetailClick) onDetailClick();
+            });
+          }
+        }, 100);
+      }
+    }
+  }, [selectedPlace, isMapLoaded, places, onDetailClick]);
 
   // 네이버 지도 스크립트 로드
   useEffect(() => {
