@@ -153,6 +153,65 @@ const SYSTEM_PROMPTS = {
   "followUpQuestions": ["어떤 음식을 드시고 싶으세요?", "예산은 어느 정도인가요?"]
 }
 
+### 예시 8: 지역 약어 → 정식명 변환 (중요!)
+입력: "홍대 카페 추천해줘"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "홍대입구역 카페",
+  "suggestedQueries": ["홍대 분위기 카페", "연남동 카페"],
+  "categories": ["카페"],
+  "keywords": ["홍대", "카페"],
+  "location": "홍대입구역",
+  "response": "홍대 근처 카페를 찾아볼게요! ☕",
+  "followUpQuestions": ["어떤 분위기를 원하세요?", "디저트도 맛있는 곳이 좋으세요?"]
+}
+
+### 예시 9: 조사 제거 + 상황 추출
+입력: "강남에서 데이트할 곳 찾아줘"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "강남역 데이트 맛집",
+  "suggestedQueries": ["강남 분위기 레스토랑", "강남역 데이트 코스"],
+  "categories": ["음식점"],
+  "keywords": ["강남", "데이트"],
+  "location": "강남역",
+  "atmosphere": ["로맨틱", "분위기좋은"],
+  "situation": "데이트",
+  "response": "강남역 근처 데이트하기 좋은 곳을 찾아볼게요! 💑",
+  "followUpQuestions": ["식사 위주인가요, 카페 위주인가요?", "예산은 어느 정도인가요?"]
+}
+
+### 예시 10: 컨텍스트 활용 - 이전 지역 유지
+이전 검색: "성수동 카페" → 결과 5개
+입력: "거기서 밥집은?"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "성수동 맛집",
+  "suggestedQueries": ["성수역 맛집", "서울숲 맛집"],
+  "categories": ["음식점"],
+  "keywords": ["성수동", "맛집", "밥집"],
+  "location": "성수동",
+  "response": "성수동에서 맛집을 찾아볼게요! 🍚",
+  "followUpQuestions": ["어떤 음식이 드시고 싶으세요?", "가격대는 어떻게 되나요?"]
+}
+
+### 예시 11: 상세 위치 → 핵심 지역만 추출
+입력: "강남역 10번출구 앞 술집 찾아줘"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "강남역 술집",
+  "suggestedQueries": ["강남역 이자카야", "강남 분위기 바"],
+  "categories": ["술집"],
+  "keywords": ["강남역", "술집", "10번출구"],
+  "location": "강남역",
+  "response": "강남역 근처 술집을 찾아볼게요! 🍺",
+  "followUpQuestions": ["어떤 분위기를 원하세요?", "안주가 맛있는 곳이 좋으세요?"]
+}
+
 ## 필수 스키마:
 ${JSON.stringify(JSON_SCHEMA, null, 2)}
 
@@ -172,14 +231,47 @@ ${JSON.stringify(JSON_SCHEMA, null, 2)}
 - "주차되는", "조용한" 등 조건만 있으면 → 이전 검색에 조건 추가
 
 ## location 추출 규칙 (매우 중요!):
-- **~역**: "동묘앞역", "강남역", "홍대입구역" → location: "동묘앞역", "강남역", "홍대입구역"
-- **~동**: "성수동", "연남동" → location: "성수동", "연남동"
-- **~구**: "강남구", "종로구" → location: "강남구", "종로구"
-- 지역 키워드: "홍대", "강남", "성수" 등 → 해당 지역으로 설정
-- **지역이 명시되지 않으면**: location: "서울" (기본값)
+
+### 우선순위 (높은 순):
+1. **역명** (~역): "강남역", "홍대입구역", "동묘앞역" → 그대로 사용
+2. **동명** (~동): "성수동", "연남동", "익선동" → 그대로 사용
+3. **구명** (~구): "강남구", "마포구" → 그대로 사용
+4. **약어/별명**: 아래 매핑 참조
+5. **기본값**: 지역 언급 없으면 "서울"
+
+### 지역 약어 → 정식명 매핑:
+- "홍대" → "홍대입구역"
+- "강남" → "강남역" (구가 아닌 역 우선)
+- "성수" → "성수역"
+- "건대" → "건대입구역"
+- "신촌" → "신촌역"
+- "이대" → "이대역"
+- "합정" → "합정역"
+- "망원" → "망원역"
+- "연남" → "연남동"
+- "을지로" → "을지로역"
+- "종로" → "종로"
+- "명동" → "명동"
+
+### 조사 제거:
+- "강남에서" → "강남역"
+- "홍대 근처에서" → "홍대입구역"
+- "성수동에 있는" → "성수동"
+
+### 상세 위치 → 핵심 지역만:
+- "강남역 10번출구 앞" → location: "강남역"
+- "홍대 걷고싶은거리" → location: "홍대입구역"
+
+### 상대적 위치 (컨텍스트 필요):
+- "여기 근처", "현위치", "내 주변" → 컨텍스트의 lastLocation 사용, 없으면 "서울"
+- "거기", "그 근처" → 이전 대화의 location 유지
+
+### 컨텍스트 활용:
+- 이전 검색이 "강남역 카페"였고 "다른 곳은?" 질문 → location: "강남역" 유지
+- "거기서 밥집은?" → 이전 location 유지
 
 ## searchQuery 생성 규칙:
-- searchQuery에도 지역을 포함: "동묘앞역 카페", "강남 맛집"
+- searchQuery에 정규화된 지역명 포함: "강남역 카페", "홍대입구역 맛집"
 - 상황(데이트, 회식) + 카테고리(맛집, 카페) 조합
 - 컨텍스트의 lastLocation이 있으면 해당 지역 유지`,
 };
@@ -351,8 +443,9 @@ ${contextInfo}${ratingHint}
       
       const intent = this.normalizeIntent(getString(parsed, 'intent'));
       const rawSearchQuery = getString(parsed, 'searchQuery') || dto.query;
-      // LLM이 추출한 location을 우선 사용
-      const llmLocation = getString(parsed, 'location') || undefined;
+      // LLM이 추출한 location을 정규화 (약어 → 정식명)
+      const rawLlmLocation = getString(parsed, 'location') || undefined;
+      const llmLocation = this.normalizeLocation(rawLlmLocation);
       const searchQuery = this.sanitizeSearchQuery(dto.query, rawSearchQuery, intent, llmLocation);
       const minRating = this.detectMinRating(dto.query);
       
@@ -634,6 +727,52 @@ ${placesInfo}
   }
 
   /**
+   * 지역명 정규화: 약어 → 정식명 변환
+   * LLM이 "홍대"를 반환해도 "홍대입구역"으로 변환
+   */
+  private normalizeLocation(location: string | undefined): string | undefined {
+    if (!location) return undefined;
+
+    const abbrevMap: Record<string, string> = {
+      '홍대': '홍대입구역',
+      '강남': '강남역',
+      '건대': '건대입구역',
+      '신촌': '신촌역',
+      '이대': '이대역',
+      '합정': '합정역',
+      '망원': '망원역',
+      '성수': '성수역',
+      '잠실': '잠실역',
+      '연남': '연남동',
+      '익선': '익선동',
+      '을지로': '을지로역',
+      '압구정': '압구정역',
+      '청담': '청담역',
+      '삼성': '삼성역',
+      '선릉': '선릉역',
+      '역삼': '역삼역',
+      '교대': '교대역',
+      '서울대입구': '서울대입구역',
+      '신림': '신림역',
+      '사당': '사당역',
+      '여의도': '여의도역',
+      '영등포': '영등포역',
+      '용산': '용산역',
+      '왕십리': '왕십리역',
+    };
+
+    // 정확히 일치하는 약어가 있으면 변환
+    const normalized = abbrevMap[location];
+    if (normalized) {
+      this.logger.debug(`Location normalized: "${location}" → "${normalized}"`);
+      return normalized;
+    }
+
+    // 이미 정식명이면 그대로 반환
+    return location;
+  }
+
+  /**
    * 정규식 폴백: LLM이 지역 추출 실패 시 사용
    */
   private extractLocationFallback(text: string): string | null {
@@ -650,6 +789,47 @@ ${placesInfo}
     // 3. ~구 패턴 (강남구, 종로구 등)
     const guMatch = text.match(/([가-힣]+구)(?:\s|$|,)/);
     if (guMatch) return guMatch[1];
+
+    // 4. 약어 → 정식명 매핑 (LLM이 못 잡은 경우 폴백)
+    const abbrevMap: Record<string, string> = {
+      '홍대': '홍대입구역',
+      '강남': '강남역',
+      '건대': '건대입구역',
+      '신촌': '신촌역',
+      '이대': '이대역',
+      '합정': '합정역',
+      '망원': '망원역',
+      '성수': '성수역',
+      '잠실': '잠실역',
+      '연남': '연남동',
+      '익선': '익선동',
+      '을지로': '을지로역',
+      '종로': '종로',
+      '명동': '명동',
+      '이태원': '이태원',
+      '압구정': '압구정역',
+      '청담': '청담역',
+      '삼성': '삼성역',
+      '선릉': '선릉역',
+      '역삼': '역삼역',
+      '교대': '교대역',
+      '서울대입구': '서울대입구역',
+      '신림': '신림역',
+      '사당': '사당역',
+      '여의도': '여의도역',
+      '영등포': '영등포역',
+      '용산': '용산역',
+      '왕십리': '왕십리역',
+      '건대입구': '건대입구역',
+      '홍대입구': '홍대입구역',
+    };
+
+    for (const [abbrev, full] of Object.entries(abbrevMap)) {
+      // 단어 경계 체크: "홍대"가 포함되어 있고, "홍대입구역"이 아닌 경우
+      if (text.includes(abbrev) && !text.includes(full)) {
+        return full;
+      }
+    }
 
     return null;
   }
