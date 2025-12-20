@@ -7,7 +7,12 @@ export interface ChatMessage {
   type: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  // AI가 제안하는 "다음 질문" (맥락/조건 보강)
   suggestions?: string[];
+  // AI가 제안하는 "검색어 후보" (사용자가 클릭 시에만 SearchBar 검색 실행)
+  searchSuggestions?: string[];
+  // 검색된 장소 카드 (바로 보여주기용)
+  places?: any[];
 }
 
 // 초기 메시지 생성 함수 export
@@ -15,7 +20,7 @@ export const createInitialMessages = (): ChatMessage[] => [
   {
     id: '1',
     type: 'assistant',
-    content: '안녕하세요! 저는 장소 추천 AI "원더"예요 ✨\n\n어떤 장소를 찾고 계신가요? 자연스럽게 말씀해주세요!',
+    content: '안녕하세요! 저는 장소 추천 AI "원더"예요 ✨\n\n어떤 장소를 찾고 계신가요? 궁금한 내용을 말씀해주세요!',
     timestamp: new Date(),
     suggestions: QUICK_SUGGESTIONS.map(s => s.text),
   },
@@ -24,6 +29,7 @@ export const createInitialMessages = (): ChatMessage[] => [
 interface ChatInterfaceProps {
   onClose?: () => void;
   onSearch: (query: string) => void;
+  onPlaceClick?: (place: any) => void;
   className?: string;
   // 상태를 부모에서 관리
   messages: ChatMessage[];
@@ -42,16 +48,17 @@ const QUICK_SUGGESTIONS = [
   { icon: '🍜', text: '혼밥 맛집', query: '혼자 가기 좋은 맛집 추천해줘' },
 ];
 
-const FOLLOW_UP_SUGGESTIONS = [
-  '더 저렴한 곳은 없을까?',
-  '주차가 되는 곳으로 알려줘',
-  '다른 지역은 어때?',
-  '더 조용한 곳은?',
+// 기본 후속 질문 (AI가 생성하지 않았을 때 사용)
+const DEFAULT_FOLLOW_UP = [
+  '주차 되는 곳은?',
+  '더 가까운 곳은?',
+  '평점 높은 곳만 보여줘',
 ];
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onClose,
   onSearch,
+  onPlaceClick,
   className = '',
   messages,
   setMessages,
@@ -93,9 +100,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       // AI 응답 생성
       let responseContent = result.response;
       
-      // 검색 정보 추가
-      if (result.searchQuery && result.searchQuery !== messageText) {
-        responseContent += `\n\n🔍 "${result.searchQuery}"로 검색할게요!`;
+      // 장소가 함께 왔는지 확인
+      const hasPlaces = result.places && result.places.length > 0;
+
+      if (!hasPlaces && result.searchQuery) {
+        responseContent += '\n\n아래 버튼을 눌러 바로 검색해보세요! 👇';
+      } else if (hasPlaces) {
+        responseContent += '\n\n추천 장소를 바로 확인해보세요! 👇';
       }
       
       // 추가 정보
@@ -106,23 +117,33 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         responseContent += `\n📍 지역: ${result.location}`;
       }
       
+      // AI가 생성한 후속 질문 사용 (없으면 기본값)
+      const followUpQuestions = result.followUpQuestions && result.followUpQuestions.length > 0
+        ? result.followUpQuestions
+        : DEFAULT_FOLLOW_UP;
+
+      const searchSuggestions =
+        (result.suggestedQueries && result.suggestedQueries.length > 0
+          ? result.suggestedQueries
+          : result.searchQuery
+            ? [result.searchQuery]
+            : [])
+          .map((q) => q.trim())
+          .filter((q) => q.length > 0);
+
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         content: responseContent,
         timestamp: new Date(),
-        suggestions: FOLLOW_UP_SUGGESTIONS,
+        suggestions: followUpQuestions,
+        searchSuggestions,
+        places: result.places,
       };
       
       setMessages(prev => [...prev, assistantMessage]);
-      
-      // 검색 실행
-      if (result.searchQuery) {
-        const searchQuery = result.searchQuery;
-        setTimeout(() => {
-          onSearch(searchQuery);
-        }, 500);
-      }
+
+      // 자동 검색 제거됨: 사용자가 버튼을 클릭해야만 이동
       
     } catch (error: any) {
       const errMsg: ChatMessage = {
@@ -206,18 +227,97 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               </div>
             </div>
             
-            {/* 팔로업 제안 버튼 */}
-            {message.type === 'assistant' && message.suggestions && messages[messages.length - 1].id === message.id && !isLoading && (
-              <div className="flex flex-wrap gap-2 mt-3 ml-10">
-                {message.suggestions.map((suggestion, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleFollowUp(suggestion)}
-                    className="px-3 py-1.5 text-xs bg-white border border-gray-200 text-gray-600 rounded-full hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition-all"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
+            {/* AI 메시지 부가 기능 영역 */}
+            {message.type === 'assistant' && (
+              <div className="ml-10 space-y-3 mt-2">
+                
+                {/* 1. 장소 카드 (최우선 표시) */}
+                {message.places && message.places.length > 0 && (
+                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent -mx-4 px-4 sm:mx-0 sm:px-0">
+                    {message.places.map((place: any) => (
+                      <div
+                        key={place.id}
+                        onClick={() => onPlaceClick && onPlaceClick(place)}
+                        className="flex-shrink-0 w-48 bg-white rounded-xl shadow-md overflow-hidden cursor-pointer hover:shadow-lg transition-shadow border border-gray-100 group"
+                      >
+                        <div className="h-28 bg-gray-200 relative overflow-hidden">
+                          {place.images && place.images.length > 0 ? (
+                            <img 
+                              src={place.images[0]} 
+                              alt={place.name} 
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-400 text-2xl bg-gray-100">
+                              🏢
+                            </div>
+                          )}
+                          {place.rating && (
+                            <div className="absolute top-2 right-2 bg-white/90 backdrop-blur px-1.5 py-0.5 rounded-md text-xs font-bold flex items-center shadow-sm text-gray-800">
+                              <span className="text-yellow-500 mr-0.5">★</span>
+                              {place.rating}
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-3">
+                          <h4 className="font-bold text-gray-800 text-sm truncate">{place.name}</h4>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">
+                            {place.category?.split('>').pop() || place.category} 
+                            {place.address && ` · ${place.address.split(' ')[1]}`}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 2. 버튼 영역 (마지막 메시지에만 표시) */}
+                {messages[messages.length - 1].id === message.id && !isLoading && (
+                  <>
+                    {/* 검색 실행 버튼 (메인 검색어) */}
+                    {message.searchSuggestions && message.searchSuggestions.length > 0 && !message.places && (
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={() => onSearch(message.searchSuggestions![0])}
+                          className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-md flex items-center justify-center gap-2 font-bold transform active:scale-98"
+                        >
+                          <span>🔍</span>
+                          <span>"{message.searchSuggestions![0]}" 지도에서 검색</span>
+                        </button>
+                        
+                        {/* 추가 검색어 (작은 버튼) */}
+                        {message.searchSuggestions.length > 1 && (
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {message.searchSuggestions.slice(1).map((q, idx) => (
+                              <button
+                                key={`search-${idx}`}
+                                onClick={() => onSearch(q)}
+                                className="px-3 py-1.5 text-xs bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-all border border-blue-100"
+                              >
+                                {q}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 다음 질문(맥락/조건 보강) */}
+                    {message.suggestions && message.suggestions.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {message.suggestions.map((suggestion, idx) => (
+                          <button
+                            key={`follow-${idx}`}
+                            onClick={() => handleFollowUp(suggestion)}
+                            className="px-3 py-1.5 text-xs bg-white border border-gray-200 text-gray-600 rounded-full hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition-all shadow-sm"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>

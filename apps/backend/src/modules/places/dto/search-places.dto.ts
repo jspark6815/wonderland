@@ -69,4 +69,15 @@ export class SearchPlacesDto {
   @Min(100)
   @Max(50000)
   radius?: number;
+
+  @ApiPropertyOptional({
+    description: '최소 평점 필터 (0~5)',
+    example: 4.3,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  minRating?: number;
 }

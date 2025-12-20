@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Place } from '@wonderland/shared';
+import { getCategoryIcon, formatCategory } from '@/utils/categoryUtils';
 
 interface PlaceDetailProps {
   place: Place;
@@ -12,39 +13,113 @@ export const PlaceDetail: React.FC<PlaceDetailProps> = ({
   onClose,
   className = '',
 }) => {
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [imageErrors, setImageErrors] = useState<Set<number>>(new Set());
+  
+  const validImages = place.images?.filter((_, idx) => !imageErrors.has(idx)) || [];
+  const hasImages = validImages.length > 0;
+
+  const handleImageError = (index: number) => {
+    setImageErrors(prev => new Set([...prev, index]));
+  };
+
+  const nextImage = () => {
+    if (validImages.length > 1) {
+      setCurrentImageIndex((prev) => (prev + 1) % validImages.length);
+    }
+  };
+
+  const prevImage = () => {
+    if (validImages.length > 1) {
+      setCurrentImageIndex((prev) => (prev - 1 + validImages.length) % validImages.length);
+    }
+  };
+
   return (
     <div className={`flex flex-col ${className}`}>
-      {/* 헤더 */}
-      <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="text-xl font-bold text-gray-900">{place.name}</h2>
+      {/* 이미지 갤러리 */}
+      <div className="relative">
+        {hasImages ? (
+          <div className="relative h-56 bg-gray-100">
+            <img
+              src={validImages[currentImageIndex]}
+              alt={`${place.name} - ${currentImageIndex + 1}`}
+              onError={() => handleImageError(currentImageIndex)}
+              className="w-full h-full object-cover"
+            />
+            
+            {/* 이미지 네비게이션 */}
+            {validImages.length > 1 && (
+              <>
+                <button
+                  onClick={prevImage}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={nextImage}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+                
+                {/* 이미지 인디케이터 */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                  {validImages.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setCurrentImageIndex(idx)}
+                      className={`w-2 h-2 rounded-full transition-colors ${
+                        idx === currentImageIndex ? 'bg-white' : 'bg-white/50'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+            
+            {/* 이미지 카운터 */}
+            <div className="absolute top-3 right-3 px-2 py-1 bg-black/50 text-white text-xs rounded-full">
+              {currentImageIndex + 1} / {validImages.length}
+            </div>
+          </div>
+        ) : (
+          /* 이미지 없을 때 플레이스홀더 */
+          <div className="h-40 bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
+            <span className="text-6xl">{getCategoryIcon(place.category)}</span>
+          </div>
+        )}
+        
+        {/* 닫기 버튼 */}
         <button
           onClick={onClose}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          className="absolute top-3 left-3 w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-colors"
           aria-label="닫기"
         >
-          <svg
-            className="w-6 h-6 text-gray-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
+      </div>
+
+      {/* 헤더 */}
+      <div className="p-4 border-b">
+        <h2 className="text-xl font-bold text-gray-900">{place.name}</h2>
       </div>
 
       {/* 콘텐츠 */}
       <div className="flex-1 overflow-y-auto p-4">
         {/* 카테고리 및 평점 */}
-        <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-4 mb-4 flex-wrap">
           {place.category && (
-            <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm">
-              {place.category}
+            <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm">
+              <span>{getCategoryIcon(place.category)}</span>
+              <span>{formatCategory(place.category)}</span>
             </span>
           )}
           

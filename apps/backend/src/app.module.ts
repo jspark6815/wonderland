@@ -19,6 +19,9 @@ import {
   jwtConfig,
 } from './config';
 import { AuthModule } from './modules/auth/auth.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
+import { UsersModule } from './modules/users/users.module';
+import { AuditModule } from './modules/audit/audit.module';
 
 @Module({
   imports: [
@@ -68,6 +71,12 @@ import { AuthModule } from './modules/auth/auth.module';
     AuthModule,
     // 헬스 체크 모듈
     HealthModule,
+    // 피드백 모듈 (사용자 방문 후기 수집)
+    FeedbackModule,
+    // 사용자 모듈 (프로필/즐겨찾기/설정)
+    UsersModule,
+    // 감사 로그 모듈 (데이터 변경 이력 추적)
+    AuditModule,
     AiModule,
     PlacesModule,
   ],

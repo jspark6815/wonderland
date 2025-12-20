@@ -110,5 +110,49 @@ export class SearchHistoryService {
     const result = await this.searchHistoryRepository.delete({ userId });
     return result.affected ?? 0;
   }
+
+  /**
+   * 장소 상세보기 클릭 시 placeId 저장 (피드백 추적용)
+   * - 가장 최근 검색 기록에 placeId를 연결
+   */
+  async trackPlaceClick(userId: string, placeId: string): Promise<SearchHistory | null> {
+    // 최근 30분 내 검색 기록 중 placeId가 없는 것 찾기
+    const recentSearch = await this.searchHistoryRepository
+      .createQueryBuilder('sh')
+      .where('sh.userId = :userId', { userId })
+      .andWhere('sh.placeId IS NULL')
+      .andWhere('sh.createdAt > :time', { time: new Date(Date.now() - 30 * 60 * 1000) })
+      .orderBy('sh.createdAt', 'DESC')
+      .getOne();
+
+    if (recentSearch) {
+      recentSearch.placeId = placeId;
+      await this.searchHistoryRepository.save(recentSearch);
+      this.logger.log(`Place click tracked: user=${userId}, place=${placeId}, searchHistory=${recentSearch.id}`);
+      return recentSearch;
+    }
+
+    // 검색 기록이 없으면 새로 생성 (직접 장소 클릭한 경우)
+    const newHistory = this.searchHistoryRepository.create({
+      userId,
+      placeId,
+      query: '직접 클릭', // 검색 없이 직접 클릭한 경우
+      resultCount: 1,
+    });
+    
+    await this.searchHistoryRepository.save(newHistory);
+    this.logger.log(`Direct place click tracked: user=${userId}, place=${placeId}`);
+    return newHistory;
+  }
+
+  /**
+   * 특정 장소에 대한 사용자의 최근 검색 기록 조회 (피드백용)
+   */
+  async getSearchByPlace(userId: string, placeId: string): Promise<SearchHistory | null> {
+    return this.searchHistoryRepository.findOne({
+      where: { userId, placeId },
+      order: { createdAt: 'DESC' },
+    });
+  }
 }
 

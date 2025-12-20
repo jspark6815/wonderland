@@ -18,6 +18,7 @@ interface SearchOptions {
   lat?: number;
   lng?: number;
   radius?: number;
+  useAI?: boolean; // AI 사용 여부 (기본값: false)
 }
 
 export const useIntegratedSearch = () => {
@@ -29,7 +30,9 @@ export const useIntegratedSearch = () => {
   });
 
   /**
-   * 통합 검색: AI 해석 + 장소 검색
+   * 통합 검색
+   * - useAI: false (기본값) → 바로 DB 검색 (빠름)
+   * - useAI: true → AI 해석 후 DB 검색 (AI Chat용)
    */
   const search = useCallback(async (
     query: string, 
@@ -39,26 +42,27 @@ export const useIntegratedSearch = () => {
     setError(null);
 
     try {
-      // 1. AI로 자연어 해석 시도
       let aiInterpretation: IntegratedSearchResult['aiInterpretation'] = undefined;
       let searchKeywords = query;
       
-      try {
-        const aiResult = await aiSearchAPI(query);
-        // AI 해석 결과가 있으면 사용
-        if (aiResult && (aiResult.keywords || aiResult.categories || aiResult.location)) {
-          searchKeywords = aiResult.searchQuery || query;
-          aiInterpretation = {
-            keywords: aiResult.keywords || [],
-            categories: aiResult.categories || [],
-            location: aiResult.location,
-          };
+      // AI 사용 시에만 AI 해석 호출 (기본값: false)
+      if (options?.useAI) {
+        try {
+          const aiResult = await aiSearchAPI(query);
+          if (aiResult && (aiResult.keywords || aiResult.categories || aiResult.location)) {
+            searchKeywords = aiResult.searchQuery || query;
+            aiInterpretation = {
+              keywords: aiResult.keywords || [],
+              categories: aiResult.categories || [],
+              location: aiResult.location,
+            };
+          }
+        } catch {
+          // AI 해석 실패 시 일반 검색으로 진행
         }
-      } catch {
-        // AI 해석 실패 시 일반 검색으로 진행 (무시)
       }
 
-      // 2. 장소 검색 (카테고리 + 위치 필터 적용)
+      // 장소 검색 (카테고리 + 위치 필터 적용)
       const filters: Record<string, unknown> = {};
       
       if (options?.category) {
@@ -69,7 +73,7 @@ export const useIntegratedSearch = () => {
       if (options?.lat && options?.lng) {
         filters.lat = options.lat;
         filters.lng = options.lng;
-        filters.radius = options.radius || 5000; // 기본 5km 반경
+        filters.radius = options.radius || 5000;
       }
       
       const places = await searchPlacesAPI(searchKeywords, Object.keys(filters).length > 0 ? filters : undefined);

@@ -5,7 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  OneToOne,
+  OneToMany,
 } from 'typeorm';
+import { UserSettings } from './user-settings.entity';
+import { Favorite } from './favorite.entity';
 
 /**
  * 사용자 역할
@@ -33,6 +37,16 @@ export class User {
   @Column({ nullable: true })
   name?: string;
 
+  // 프로필 확장 필드
+  @Column({ nullable: true })
+  profileImage?: string;
+
+  @Column({ nullable: true, length: 200 })
+  bio?: string; // 자기소개
+
+  @Column({ nullable: true })
+  phone?: string;
+
   @Column({
     type: 'enum',
     enum: UserRole,
@@ -48,6 +62,13 @@ export class User {
 
   @Column({ nullable: true })
   refreshToken?: string;
+
+  // 관계 설정
+  @OneToOne(() => UserSettings, (settings) => settings.user)
+  settings: UserSettings;
+
+  @OneToMany(() => Favorite, (favorite) => favorite.user)
+  favorites: Favorite[];
 
   @CreateDateColumn()
   createdAt: Date;

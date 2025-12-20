@@ -164,7 +164,12 @@ export class AuthService {
    * 로그아웃
    */
   async logout(userId: string): Promise<void> {
-    await this.userRepository.update(userId, { refreshToken: undefined });
+    if (!userId || userId.trim().length === 0) {
+      throw new UnauthorizedException('인증 정보가 없습니다.');
+    }
+
+    // refreshToken 제거 (DB NULL로 설정)
+    await this.userRepository.update({ id: userId }, { refreshToken: null as unknown as string });
     this.logger.log(`User logged out: ${userId}`);
   }
 

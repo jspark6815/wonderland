@@ -4,6 +4,7 @@ import { PlaceList } from '@/components/places/PlaceList';
 import { PlaceDetail } from '@/components/places/PlaceDetail';
 import { ChatInterface, ChatMessage, createInitialMessages } from '@/components/ai/ChatInterface';
 import { UserMenu } from '@/components/auth';
+import { FeedbackPrompt } from '@/components/feedback';
 import { useIntegratedSearch } from '@/hooks/useIntegratedSearch';
 import { useAuthStore } from '@/store/authStore';
 import { Place } from '@wonderland/shared';
@@ -12,6 +13,7 @@ import {
   getPlaceDetailByLocationAPI, 
   getPlaceDetailAPI,
   getLastSearchHistoryAPI,
+  trackPlaceClickAPI,
   SearchHistoryItem,
 } from '@/api/places.api';
 
@@ -21,8 +23,11 @@ export const MapPage: React.FC = () => {
   const [showSidebar, setShowSidebar] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
-  const [isAutoSearching, setIsAutoSearching] = useState(false);
+  // isAutoSearching 제거 - isSearching으로 통합
   const [autoSearchPlaces, setAutoSearchPlaces] = useState<Place[]>([]);
+  const [searchResults, setSearchResults] = useState<Place[]>([]); // 검색 결과 별도 관리
+  const [isSearching, setIsSearching] = useState(false);
+  const [showResearchButton, setShowResearchButton] = useState(false); // 재검색 버튼 표시 여부
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   
@@ -31,6 +36,14 @@ export const MapPage: React.FC = () => {
     lat: 37.5665, // 기본값: 서울시청
     lng: 126.9780,
   });
+  
+  // 현재 지도 bounds (검색 시 영역 기반 필터링에 사용)
+  const [mapBounds, setMapBounds] = useState<{
+    south: number;
+    north: number;
+    west: number;
+    east: number;
+  } | null>(null);
   
   // AI Chat 상태 (부모에서 관리하여 multi-turn 대화 유지)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(createInitialMessages());
@@ -45,11 +58,7 @@ export const MapPage: React.FC = () => {
   const { isAuthenticated, user } = useAuthStore();
   const prevAuthRef = useRef(isAuthenticated);
   
-  const { 
-    search, 
-    places, 
-    isLoading, 
-  } = useIntegratedSearch();
+  const { search } = useIntegratedSearch();
   
   // 로그인 시 마지막 검색 기록 불러오기
   useEffect(() => {
@@ -71,120 +80,207 @@ export const MapPage: React.FC = () => {
     prevAuthRef.current = isAuthenticated;
   }, [isAuthenticated]);
 
-  // 검색 실행 (현재 지도 위치 기반)
+  // 검색 실행 (DB 검색 우선 + bounds 필터링)
   const handleSearch = useCallback(async (query: string, category?: string | null) => {
     if (!query.trim()) return;
     
     setSearchQuery(query);
-    setShowSidebar(true); // 검색 시 사이드바 자동 열기
+    setShowSidebar(true);
+    setIsSearching(true);
+    setShowResearchButton(false);
     
     try {
-      await search(query, {
-        category,
-        lat: mapCenter.lat,
-        lng: mapCenter.lng,
-        radius: 5000, // 5km 반경
-      });
+      let results: Place[] = [];
+      
+      // 1. 먼저 DB 전체 검색 시도 (외부 API 포함)
+      try {
+        const dbResults = await search(query, {
+          category,
+          lat: mapCenter.lat,
+          lng: mapCenter.lng,
+          radius: 10000,
+        });
+        results = dbResults.places || [];
+      } catch {
+        // DB 검색 실패 시 무시
+      }
+      
+      // 2. DB 검색 결과가 없고 bounds가 있으면 bounds 기반 검색
+      if (results.length === 0 && mapBounds) {
+        const boundsResults = await searchPlacesByBoundsAPI(
+          mapBounds,
+          category || undefined,
+          100
+        );
+        
+        // 키워드로 클라이언트 사이드 필터링
+        const queryLower = query.toLowerCase();
+        results = boundsResults.filter(place => 
+          place.name?.toLowerCase().includes(queryLower) ||
+          place.address?.toLowerCase().includes(queryLower) ||
+          place.category?.toLowerCase().includes(queryLower) ||
+          place.tags?.some(tag => tag.toLowerCase().includes(queryLower))
+        );
+      }
+      
+      setSearchResults(results);
+      
+      // 검색 결과가 있으면 첫 번째 장소로 지도 이동
+      if (results.length > 0) {
+        const first = results[0];
+        const lat = typeof first.latitude === 'string' ? parseFloat(first.latitude) : first.latitude;
+        const lng = typeof first.longitude === 'string' ? parseFloat(first.longitude) : first.longitude;
+        
+        if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
+          setMapCenter({ lat, lng });
+        }
+      }
     } catch {
-      // 검색 실패 시 조용히 실패 (hook에서 error 상태 관리)
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
     }
-  }, [search, mapCenter]);
+  }, [search, mapCenter, mapBounds]);
 
-  // 장소 선택
-  const handlePlaceSelect = useCallback(async (place: Place) => {
+  // 장소 선택 (지도 핀 이동 및 InfoWindow 표시)
+  const handlePlaceSelect = useCallback((place: Place) => {
+    setSelectedPlace(place);
+    
+    // 지도 중심 이동
+    if (place.latitude && place.longitude) {
+      const lat = typeof place.latitude === 'string' ? parseFloat(place.latitude) : place.latitude;
+      const lng = typeof place.longitude === 'string' ? parseFloat(place.longitude) : place.longitude;
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setMapCenter({ lat, lng });
+      }
+    }
+  }, []);
+
+  // 상세 보기 모달 열기 (InfoWindow 클릭 시)
+  const handleDetailOpen = useCallback(async () => {
+    if (!selectedPlace) return;
+    
     setIsLoadingDetail(true);
     setShowDetail(true);
     
     try {
       let detailPlace: Place;
       
-      if (place.id) {
+      if (selectedPlace.id) {
         try {
-          detailPlace = await getPlaceDetailAPI(place.id);
+          detailPlace = await getPlaceDetailAPI(selectedPlace.id);
         } catch (error) {
-          if (place.latitude && place.longitude) {
+          if (selectedPlace.latitude && selectedPlace.longitude) {
             detailPlace = await getPlaceDetailByLocationAPI(
-              place.name,
-              typeof place.latitude === 'string' ? parseFloat(place.latitude) : place.latitude,
-              typeof place.longitude === 'string' ? parseFloat(place.longitude) : place.longitude
+              selectedPlace.name,
+              typeof selectedPlace.latitude === 'string' ? parseFloat(selectedPlace.latitude) : selectedPlace.latitude,
+              typeof selectedPlace.longitude === 'string' ? parseFloat(selectedPlace.longitude) : selectedPlace.longitude
             );
           } else {
             throw error;
           }
         }
-      } else if (place.latitude && place.longitude) {
+      } else if (selectedPlace.latitude && selectedPlace.longitude) {
         detailPlace = await getPlaceDetailByLocationAPI(
-          place.name,
-          typeof place.latitude === 'string' ? parseFloat(place.latitude) : place.latitude,
-          typeof place.longitude === 'string' ? parseFloat(place.longitude) : place.longitude
+          selectedPlace.name,
+          typeof selectedPlace.latitude === 'string' ? parseFloat(selectedPlace.latitude) : selectedPlace.latitude,
+          typeof selectedPlace.longitude === 'string' ? parseFloat(selectedPlace.longitude) : selectedPlace.longitude
         );
       } else {
-        detailPlace = place;
+        detailPlace = selectedPlace;
       }
       
       setSelectedPlace(detailPlace);
+
+      // 피드백 프롬프트를 위한 장소 클릭 추적 (로그인 사용자만)
+      if (detailPlace.id && isAuthenticated) {
+        trackPlaceClickAPI(detailPlace.id).catch(() => {
+          // 추적 실패 무시
+        });
+      }
     } catch {
       // 상세 정보 조회 실패 시 기본 정보 표시
-      setSelectedPlace(place);
     } finally {
       setIsLoadingDetail(false);
     }
-  }, []);
+  }, [selectedPlace, isAuthenticated]);
 
-  // 지도 영역 변경 시 자동 검색 + 지도 중심 업데이트
+  // 지도 영역 변경 시 bounds 업데이트 + 재검색 버튼 표시
   const handleBoundsChange = useCallback(async (bounds: {
     south: number;
     north: number;
     west: number;
     east: number;
   }) => {
-    // 지도 중심 좌표 업데이트 (다음 검색에 사용)
+    // 지도 중심 좌표 및 bounds 업데이트
     const newCenter = {
       lat: (bounds.south + bounds.north) / 2,
       lng: (bounds.west + bounds.east) / 2,
     };
     setMapCenter(newCenter);
+    setMapBounds(bounds);
     
-    if (searchQuery.trim()) return;
-
-    setIsAutoSearching(true);
-    try {
-      const results = await searchPlacesByBoundsAPI(
-        bounds,
-        selectedCategory || undefined,
-        50
-      );
-      setAutoSearchPlaces(results);
-    } catch {
-      // 자동 검색 실패 시 무시
-    } finally {
-      setIsAutoSearching(false);
+    // 검색어 또는 카테고리 필터가 있으면 "이 지역에서 재검색" 버튼 표시
+    if (searchQuery.trim() || selectedCategory) {
+      setShowResearchButton(true);
     }
   }, [searchQuery, selectedCategory]);
+
+  // 이 지역에서 재검색
+  const handleResearch = useCallback(async () => {
+    if (!mapBounds) return;
+    
+    setShowResearchButton(false);
+    setIsSearching(true);
+    
+    try {
+      const boundsResults = await searchPlacesByBoundsAPI(
+        mapBounds,
+        selectedCategory || undefined,
+        100
+      );
+      
+      // 검색어가 있으면 키워드로 필터링
+      if (searchQuery.trim()) {
+        const queryLower = searchQuery.toLowerCase();
+        const filtered = boundsResults.filter(place => 
+          place.name?.toLowerCase().includes(queryLower) ||
+          place.address?.toLowerCase().includes(queryLower) ||
+          place.category?.toLowerCase().includes(queryLower) ||
+          place.tags?.some(tag => tag.toLowerCase().includes(queryLower))
+        );
+        setSearchResults(filtered);
+        setShowSidebar(filtered.length > 0);
+      } else {
+        // 카테고리 필터만 있으면 전체 결과 표시
+        setAutoSearchPlaces(boundsResults);
+      }
+    } catch {
+      // 검색 실패 시 무시
+    } finally {
+      setIsSearching(false);
+    }
+  }, [mapBounds, searchQuery, selectedCategory]);
 
   // 검색 초기화
   const clearSearch = useCallback(() => {
     setSearchQuery('');
+    setSearchResults([]);
     setShowSidebar(false);
+    setShowResearchButton(false);
   }, []);
 
   // 카테고리 변경 시 재검색
   useEffect(() => {
     if (searchQuery.trim()) {
-      // 검색어가 있으면 새 카테고리 + 현재 위치로 재검색
-      search(searchQuery, {
-        category: selectedCategory,
-        lat: mapCenter.lat,
-        lng: mapCenter.lng,
-        radius: 5000,
-      });
+      // 검색어가 있으면 새 카테고리로 재검색
+      handleSearch(searchQuery, selectedCategory);
     }
-    // searchQuery, mapCenter 변경 시에는 handleSearch가 처리하므로 selectedCategory만 의존
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory]);
 
-  // 표시할 장소 목록
-  const displayPlaces = places.length > 0 ? places : autoSearchPlaces;
+  // 표시할 장소 목록 (검색 결과 > 자동 검색 결과)
+  const displayPlaces = searchResults.length > 0 ? searchResults : autoSearchPlaces;
 
   // 카테고리 목록
   const categories = [
@@ -201,9 +297,13 @@ export const MapPage: React.FC = () => {
       {/* 지도 (전체 화면) */}
       <NaverMap
         places={displayPlaces}
+        center={mapCenter}
         onPlaceClick={handlePlaceSelect}
+        selectedPlace={selectedPlace}
+        onDetailClick={handleDetailOpen}
         onBoundsChange={handleBoundsChange}
-        enableAutoSearch={!searchQuery.trim()}
+        enableAutoSearch={!searchQuery.trim() && !selectedCategory}
+        fitBoundsOnSearch={false} // 검색해도 지도 이동 안함 (사용자가 보고 있는 영역 유지)
         className="w-full h-full"
       />
 
@@ -266,7 +366,7 @@ export const MapPage: React.FC = () => {
                   }
                 }}
                 placeholder="장소, 주소 검색"
-                className="flex-1 px-3 py-2.5 text-gray-900 placeholder-gray-400 focus:outline-none"
+                className="flex-1 px-3 py-2.5 bg-white text-gray-900 placeholder-gray-400 focus:outline-none"
               />
               {searchQuery && (
                 <button
@@ -323,13 +423,15 @@ export const MapPage: React.FC = () => {
       </div>
 
       {/* 검색 결과 사이드바 (검색 시 표시) */}
-      {showSidebar && places.length > 0 && (
+      {showSidebar && (searchResults.length > 0 || isSearching) && (
         <div className="absolute top-24 left-4 w-80 max-h-[calc(100vh-120px)] bg-white rounded-xl shadow-xl z-20 flex flex-col overflow-hidden">
           {/* 헤더 */}
           <div className="flex items-center justify-between p-3 border-b bg-gray-50">
             <div>
               <h3 className="font-semibold text-gray-900">검색 결과</h3>
-              <p className="text-sm text-gray-500">{places.length}개의 장소</p>
+              <p className="text-sm text-gray-500">
+                {isSearching ? '검색 중...' : `${searchResults.length}개의 장소`}
+              </p>
             </div>
             <button
               onClick={clearSearch}
@@ -344,8 +446,8 @@ export const MapPage: React.FC = () => {
           {/* 결과 목록 */}
           <div className="flex-1 overflow-y-auto">
             <PlaceList
-              places={places}
-              isLoading={isLoading}
+              places={searchResults}
+              isLoading={isSearching}
               onPlaceClick={handlePlaceSelect}
             />
           </div>
@@ -402,8 +504,23 @@ export const MapPage: React.FC = () => {
         </button>
       </div>
 
+      {/* 이 지역에서 재검색 버튼 */}
+      {showResearchButton && !isSearching && (
+        <div className="absolute top-40 left-1/2 -translate-x-1/2 z-30">
+          <button
+            onClick={handleResearch}
+            className="bg-white px-4 py-2.5 rounded-full shadow-lg hover:shadow-xl transition-all flex items-center gap-2 border border-gray-200 hover:border-blue-300"
+          >
+            <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span className="text-sm font-medium text-gray-700">이 지역에서 재검색</span>
+          </button>
+        </div>
+      )}
+
       {/* 로딩 인디케이터 */}
-      {(isLoading || isAutoSearching) && (
+      {isSearching && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg z-20 flex items-center gap-2">
           <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
           <span className="text-sm text-gray-600">검색 중...</span>
@@ -420,6 +537,17 @@ export const MapPage: React.FC = () => {
                 setShowAIChat(false);
                 setSearchQuery(query);
                 handleSearch(query, selectedCategory);
+              }}
+              onPlaceClick={(place) => {
+                setShowAIChat(false);
+                // 선택된 장소로 지도 이동 및 상세 정보 표시
+                if (place.latitude && place.longitude) {
+                  setMapCenter({ 
+                    lat: typeof place.latitude === 'string' ? parseFloat(place.latitude) : place.latitude, 
+                    lng: typeof place.longitude === 'string' ? parseFloat(place.longitude) : place.longitude 
+                  });
+                }
+                handlePlaceSelect(place);
               }}
               className="h-full"
               messages={chatMessages}
@@ -468,6 +596,9 @@ export const MapPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 방문 피드백 프롬프트 (로그인된 사용자에게만 표시) */}
+      <FeedbackPrompt />
     </div>
   );
 };

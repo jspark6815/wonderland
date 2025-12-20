@@ -1,61 +1,416 @@
-import { apiClient } from './client';
+import axios from 'axios';
 import type {
   InterpretedQuery,
   RecommendPlaceRequest,
   SummarizeReviewsRequest,
 } from '../types';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+
 /**
  * AI 검색 응답 (프론트엔드 전용)
  */
 export interface AISearchResponse {
+  intent?: 'SUGGEST_QUERY' | 'REFINE_CONTEXT' | 'NEED_MORE_INFO';
   response: string;
   searchQuery: string;
+  suggestedQueries?: string[];
   keywords: string[];
   categories: string[];
   location?: string;
   atmosphere?: string[];
   situation?: string;
+  followUpQuestions?: string[]; // AI가 생성한 맞춤형 후속 질문
+  places?: any[]; // 검색된 장소 데이터 (카드 표시용)
 }
+
+/**
+ * 검색 컨텍스트 (후속 질문용)
+ */
+export interface SearchContext {
+  lastSearchQuery?: string;
+  lastKeywords?: string[];
+  lastCategories?: string[];
+  lastLocation?: string;
+  lastAtmosphere?: string[];
+  lastResultCount?: number; // 이전 검색 결과 수
+}
+
+/**
+ * AI 전용 클라이언트 (긴 타임아웃)
+ */
+const aiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 30000, // AI는 30초 타임아웃
+});
+
+// 응답에서 data 직접 반환
+aiClient.interceptors.response.use(
+  (response) => response.data,
+  (error) => Promise.reject(error)
+);
+
+const AI_INTERPRET_STREAM_ENABLED = import.meta.env.VITE_AI_INTERPRET_STREAM === 'true';
+
+const parseSseLines = (raw: string): Array<{ event: string; data: string }> => {
+  const events: Array<{ event: string; data: string }> = [];
+  const blocks = raw.split('\n\n').map((b) => b.trim()).filter(Boolean);
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    let event = 'message';
+    let data = '';
+    for (const line of lines) {
+      if (line.startsWith('event:')) event = line.slice('event:'.length).trim();
+      if (line.startsWith('data:')) data = line.slice('data:'.length).trim();
+    }
+    if (data) events.push({ event, data });
+  }
+  return events;
+};
+
+const aiInterpretStream = async (
+  query: string,
+  headers: Record<string, string>,
+  context?: SearchContext,
+  minRating?: number,
+): Promise<InterpretedQuery> => {
+  const res = await fetch(`${API_BASE_URL}/ai/interpret/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      ...headers,
+    },
+    body: JSON.stringify({ query, context, minRating }),
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`AI 스트림 요청 실패: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let interpretation: InterpretedQuery | null = null;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lastSep = buffer.lastIndexOf('\n\n');
+    if (lastSep === -1) continue;
+
+    const chunkText = buffer.slice(0, lastSep);
+    buffer = buffer.slice(lastSep + 2);
+
+    const parsedEvents = parseSseLines(chunkText);
+    for (const ev of parsedEvents) {
+      if (ev.event === 'error') {
+        try {
+          const payload = JSON.parse(ev.data) as { message?: string };
+          throw new Error(payload.message || 'AI 스트리밍 오류');
+        } catch {
+          throw new Error('AI 스트리밍 오류');
+        }
+      }
+      if (ev.event === 'interpretation') {
+        interpretation = JSON.parse(ev.data) as InterpretedQuery;
+      }
+    }
+  }
+
+  if (!interpretation) {
+    throw new Error('AI 스트리밍 응답에서 interpretation을 받지 못했습니다.');
+  }
+  return interpretation;
+};
+
+/**
+ * 후속 질문 패턴 감지
+ */
+const isFollowUpQuery = (query: string): boolean => {
+  const followUpPatterns = [
+    /^더\s/, /^다른\s/, /^또\s/, /없을까/, /있을까/, /어때\??$/, /은\??$/, /는\??$/,
+    /말고/, /대신/, /비슷한/, /가까운/, /저렴한/, /비싼/
+  ];
+  return followUpPatterns.some(pattern => pattern.test(query));
+};
+
+/**
+ * 후속 질문에서 의미 있는 조건 추출
+ */
+const extractConditionFromFollowUp = (query: string): { condition: string; type: string } | null => {
+  const conditionPatterns: [RegExp, string, string][] = [
+    [/더\s*(조용한|시끄러운|넓은|좁은|깨끗한)/, '$1', 'atmosphere'],
+    [/더\s*(저렴한|싼|비싼|고급)/, '$1', 'price'],
+    [/(주차|와이파이|WiFi|흡연|금연|예약)/, '$1', 'feature'],
+    [/(혼밥|데이트|회식|가족|친구|연인)/, '$1', 'situation'],
+    [/다른\s*(지역|동네|곳)/, '다른 지역', 'location'],
+  ];
+
+  for (const [pattern, replacement, type] of conditionPatterns) {
+    const match = query.match(pattern);
+    if (match) {
+      return { 
+        condition: match[1] || replacement.replace('$1', match[1] || ''), 
+        type 
+      };
+    }
+  }
+  return null;
+};
+
+/**
+ * 프론트엔드 폴백 해석 (AI 실패 시)
+ */
+const fallbackInterpret = (query: string, context?: SearchContext): AISearchResponse => {
+  const keywords: string[] = [];
+  const categories: string[] = [];
+  let location: string | undefined;
+  const atmosphere: string[] = [];
+
+  // 후속 질문인 경우 이전 컨텍스트 활용
+  if (isFollowUpQuery(query) && context?.lastSearchQuery) {
+    // 이전 검색어의 키워드와 카테고리 유지
+    keywords.push(...(context.lastKeywords || []));
+    categories.push(...(context.lastCategories || []));
+    location = context.lastLocation;
+
+    // 새 조건 추출 및 추가
+    const newCondition = extractConditionFromFollowUp(query);
+    if (newCondition) {
+      if (newCondition.type === 'atmosphere') {
+        atmosphere.push(newCondition.condition);
+        keywords.push(newCondition.condition);
+      } else if (newCondition.type === 'feature') {
+        keywords.push(newCondition.condition);
+      } else if (newCondition.type === 'situation') {
+        keywords.push(newCondition.condition);
+      }
+    }
+
+    const searchQuery = [...new Set(keywords)].join(' ');
+    return {
+      intent: 'REFINE_CONTEXT',
+      response: `${newCondition?.condition || '조건'}을 추가해서 다시 찾아볼게요! 🔍`,
+      searchQuery: searchQuery || context.lastSearchQuery,
+      suggestedQueries: [searchQuery || context.lastSearchQuery],
+      keywords: [...new Set(keywords)],
+      categories: [...new Set(categories)],
+      location,
+      atmosphere,
+      followUpQuestions: generateFollowUpQuestions(categories[0], location, atmosphere),
+      places: [],
+    };
+  }
+
+  // 일반 질문 처리
+  // 카테고리 매칭
+  const categoryMap: Record<string, string[]> = {
+    '카페': ['카페', '커피', '디저트', '브런치', '베이커리'],
+    '음식점': ['맛집', '음식점', '식당', '밥', '레스토랑', '한식', '중식', '일식', '양식'],
+    '술집': ['술집', '바', '호프', '이자카야', '포차'],
+    '쇼핑': ['쇼핑', '마트', '백화점'],
+  };
+  
+  for (const [category, words] of Object.entries(categoryMap)) {
+    if (words.some(word => query.includes(word))) {
+      categories.push(category);
+    }
+  }
+
+  // 분위기 키워드
+  const atmosphereKeywords = ['조용한', '시끄러운', '분위기', '로맨틱', '아늑한', '넓은', '모던'];
+  atmosphereKeywords.forEach(kw => {
+    if (query.includes(kw)) atmosphere.push(kw);
+  });
+
+  // 지역 추출
+  const locationPatterns = [
+    /([가-힣]+역)\s*(근처|주변)?/,
+    /([가-힣]+동)\s*(근처|주변)?/,
+    /([가-힣]+구)\s*(근처|주변)?/,
+  ];
+  
+  for (const pattern of locationPatterns) {
+    const match = query.match(pattern);
+    if (match) {
+      location = match[1];
+      break;
+    }
+  }
+
+  // 키워드 추출 (불용어 제거)
+  const stopWords = ['좋은', '있는', '추천', '해주세요', '알려', '찾아', '근처', '주변', '되는', '곳으로', '곳은', '더', '다른'];
+  const words = query.split(/\s+/).filter(w => 
+    w.length > 1 && !stopWords.some(sw => w.includes(sw))
+  );
+  keywords.push(...words.slice(0, 5));
+
+  // 분위기 키워드도 검색어에 추가
+  keywords.push(...atmosphere);
+
+  const uniqueKeywords = [...new Set(keywords)];
+  
+  return {
+    intent: 'SUGGEST_QUERY',
+    response: categories.length > 0 
+      ? `${categories.join(', ')}을(를) 찾아볼게요! 🔍`
+      : `"${query}"로 검색해볼게요! 🔍`,
+    searchQuery: uniqueKeywords.length > 0 ? uniqueKeywords.join(' ') : query,
+    suggestedQueries: [uniqueKeywords.length > 0 ? uniqueKeywords.join(' ') : query],
+    keywords: uniqueKeywords.length > 0 ? uniqueKeywords : [query],
+    categories,
+    location,
+    atmosphere,
+    followUpQuestions: generateFollowUpQuestions(categories[0], location, atmosphere),
+    places: [],
+  };
+};
+
+/**
+ * 맞춤형 후속 질문 생성 (프론트엔드 폴백용)
+ */
+const generateFollowUpQuestions = (
+  category?: string, 
+  location?: string, 
+  atmosphere?: string[]
+): string[] => {
+  const questions: string[] = [];
+  const hasAtmosphere = atmosphere && atmosphere.length > 0;
+
+  // 카테고리별 맞춤 질문
+  if (category === '카페') {
+    questions.push('디저트가 맛있는 곳은?');
+    if (!hasAtmosphere) questions.push('더 조용한 곳은?');
+    questions.push('주차 되는 곳은?');
+    questions.push('24시간 영업하는 곳은?');
+  } else if (category === '음식점') {
+    questions.push('예약 가능한 곳은?');
+    questions.push('더 가성비 좋은 곳은?');
+    questions.push('주차 되는 곳은?');
+    if (!location) questions.push('강남쪽은 어때?');
+  } else if (category === '술집') {
+    questions.push('안주가 맛있는 곳은?');
+    questions.push('룸 있는 곳은?');
+    questions.push('더 조용한 곳은?');
+  } else {
+    questions.push('주차 되는 곳은?');
+    questions.push('평점 높은 곳만 보여줘');
+    questions.push('더 가까운 곳은?');
+  }
+
+  // 지역 없으면 지역 질문 추가
+  if (!location) {
+    questions.push('홍대쪽은 어때?');
+  }
+
+  return [...new Set(questions)].slice(0, 4);
+};
+
+/**
+ * 평점 요청 감지
+ */
+const detectMinRating = (query: string): number | undefined => {
+  const normalized = query.replace(/\s+/g, '').toLowerCase();
+  
+  // 숫자 평점 명시 (예: 평점4.2, 별점4.5)
+  const numMatch = normalized.match(/(?:평점|별점)(\d(?:\.\d)?)/);
+  if (numMatch && numMatch[1]) {
+    const val = parseFloat(numMatch[1]);
+    if (!isNaN(val) && val >= 0 && val <= 5) return val;
+  }
+  
+  // "평점높은", "별점높은" 등 키워드
+  if (normalized.includes('평점높') || normalized.includes('별점높')) {
+    return 4.3;
+  }
+  
+  return undefined;
+};
 
 /**
  * AI를 통한 자연어 검색
  */
-export const aiSearchAPI = async (query: string): Promise<AISearchResponse> => {
+export const aiSearchAPI = async (query: string, context?: SearchContext): Promise<AISearchResponse> => {
+  // 후속 질문 감지
+  const isFollowUp = isFollowUpQuery(query);
+  
+  // 평점 필터 감지
+  const minRating = detectMinRating(query);
+  
+  // 후속 질문이면 컨텍스트 정보 그대로 전달 (백엔드에서 처리)
+  const contextWithResultCount = context ? {
+    ...context,
+    lastResultCount: context.lastResultCount || undefined,
+  } : undefined;
+
   try {
-    const result = await apiClient.post<InterpretedQuery>('/ai/interpret', {
-      query,
-    });
+    // 토큰 가져오기
+    const token = localStorage.getItem('token');
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const result = AI_INTERPRET_STREAM_ENABLED
+      ? await aiInterpretStream(query, headers, contextWithResultCount, minRating)
+      : await aiClient.post<unknown, InterpretedQuery>('/ai/interpret', { 
+          query, 
+          context: contextWithResultCount,
+          minRating,
+        }, { headers });
     
+    // 후속 질문이면 이전 컨텍스트와 병합
+    let mergedKeywords = result.keywords || [];
+    let mergedCategories = result.categories || [];
+    let mergedLocation = result.location;
+    
+    if (isFollowUp && context) {
+      mergedKeywords = [...new Set([...(context.lastKeywords || []), ...mergedKeywords])];
+      mergedCategories = [...new Set([...(context.lastCategories || []), ...mergedCategories])];
+      mergedLocation = mergedLocation || context.lastLocation;
+    }
+
     return {
+      intent: result.intent,
       response: result.response || `"${query}"를 검색해볼게요! 🔍`,
-      searchQuery: result.searchQuery || query,
-      keywords: result.keywords || [query],
-      categories: result.categories || [],
-      location: result.location,
+      searchQuery: result.searchQuery || (mergedKeywords.length > 0 ? mergedKeywords.join(' ') : query),
+      suggestedQueries: result.suggestedQueries || (result.searchQuery ? [result.searchQuery] : []),
+      keywords: mergedKeywords.length > 0 ? mergedKeywords : [query],
+      categories: mergedCategories,
+      location: mergedLocation,
       atmosphere: result.atmosphere,
       situation: result.situation,
+      followUpQuestions: result.followUpQuestions || [],
+      places: result.places || [],
     };
-  } catch {
+  } catch (error) {
     // 개발 환경에서만 로깅
     if (import.meta.env.DEV) {
       // eslint-disable-next-line no-console
-      console.error('AI 해석 실패');
+      console.warn('AI 해석 실패, 폴백 사용:', error instanceof Error ? error.message : 'Unknown');
     }
-    return {
-      response: `"${query}"로 검색해볼게요!`,
-      searchQuery: query,
-      keywords: [query],
-      categories: [],
-    };
+    
+    // AI 실패 시 프론트엔드 폴백 해석 사용 (컨텍스트 전달)
+    return fallbackInterpret(query, context);
   }
+};
+
+/**
+ * 인증 헤더 가져오기
+ */
+const getAuthHeaders = (): Record<string, string> => {
+  const token = localStorage.getItem('token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 /**
  * AI 장소 추천
  */
 export const aiRecommendAPI = async (request: RecommendPlaceRequest) => {
-  const response = await apiClient.post('/ai/recommend', request);
+  const response = await aiClient.post<unknown, unknown>('/ai/recommend', request, { headers: getAuthHeaders() });
   return response;
 };
 
@@ -63,7 +418,7 @@ export const aiRecommendAPI = async (request: RecommendPlaceRequest) => {
  * AI 리뷰 요약
  */
 export const aiSummarizeReviewsAPI = async (request: SummarizeReviewsRequest): Promise<string> => {
-  const response = await apiClient.post<{ summary: string }>('/ai/summarize', request);
+  const response = await aiClient.post<unknown, { summary: string }>('/ai/summarize', request, { headers: getAuthHeaders() });
   return response.summary || '';
 };
 
@@ -71,7 +426,7 @@ export const aiSummarizeReviewsAPI = async (request: SummarizeReviewsRequest): P
  * AI 장소 비교
  */
 export const aiComparePlacesAPI = async (places: Array<{ name: string; description?: string }>): Promise<string> => {
-  const response = await apiClient.post<{ comparison: string }>('/ai/compare', { places });
+  const response = await aiClient.post<unknown, { comparison: string }>('/ai/compare', { places }, { headers: getAuthHeaders() });
   return response.comparison || '';
 };
 
@@ -80,7 +435,7 @@ export const aiComparePlacesAPI = async (places: Array<{ name: string; descripti
  */
 export const aiHealthCheckAPI = async (): Promise<boolean> => {
   try {
-    const response = await apiClient.get<{ status: string; modelAvailable: boolean }>('/ai/health');
+    const response = await aiClient.get<unknown, { status: string; modelAvailable: boolean }>('/ai/health');
     // 백엔드는 'ok', 'warning', 'error' 상태를 반환
     return response.status === 'ok' || response.status === 'warning';
   } catch {
