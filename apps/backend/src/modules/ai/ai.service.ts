@@ -21,7 +21,7 @@ const JSON_SCHEMA = {
   specialRequests: 'string[] (특별 요청)',
   minRating: 'number | null (최소 평점 필터, 0~5 사이. 평점 높은/별점 언급 시 설정)',
   response: 'string (사용자에게 보여줄 친근한 응답)',
-  followUpQuestions: 'string[] (후속 질문)',
+  followUpQuestions: 'string[] (사용자가 클릭할 수 있는 추가 검색어 - "~좋으세요?" 형태가 아닌 "분위기 좋은 곳", "디저트 맛집" 같은 검색 키워드 형태)',
 };
 
 // 시스템 프롬프트 정의
@@ -62,7 +62,7 @@ const SYSTEM_PROMPTS = {
   "atmosphere": ["로맨틱", "분위기좋은"],
   "situation": "데이트",
   "response": "데이트에 딱 맞는 분위기 좋은 곳들을 찾아볼게요! 💕",
-  "followUpQuestions": ["어느 지역이 좋으세요?", "예산은 어느 정도로 생각하세요?"]
+  "followUpQuestions": ["강남 데이트 코스", "가성비 좋은 레스토랑", "분위기 좋은 곳"]
 }
 
 ### 예시 2: 평점 필터 요청
@@ -77,7 +77,7 @@ const SYSTEM_PROMPTS = {
   "location": "서울",
   "minRating": 4.3,
   "response": "평점 4.3 이상의 인기 카페들을 찾아볼게요! ⭐",
-  "followUpQuestions": ["어떤 분위기를 원하세요?", "디저트가 맛있는 곳을 찾으세요?"]
+  "followUpQuestions": ["조용한 카페", "디저트 맛집", "작업하기 좋은 곳"]
 }
 
 ### 예시 3: 후속 질문 (컨텍스트 활용)
@@ -92,7 +92,7 @@ const SYSTEM_PROMPTS = {
   "keywords": ["강남", "맛집", "새로운"],
   "location": "강남",
   "response": "강남에서 다른 맛집들을 더 찾아볼게요! 🔍",
-  "followUpQuestions": ["어떤 음식 종류를 원하세요?", "가격대는 어떻게 되나요?"]
+  "followUpQuestions": ["한식 맛집", "이탈리안 레스토랑", "가성비 좋은 곳"]
 }
 
 ### 예시 4: 조건 추가 (컨텍스트 활용)
@@ -108,7 +108,7 @@ const SYSTEM_PROMPTS = {
   "location": "홍대",
   "specialRequests": ["주차가능"],
   "response": "홍대 근처 주차 가능한 카페를 찾아볼게요! 🚗",
-  "followUpQuestions": ["무료 주차가 필요하세요?", "넓은 주차장이 있는 곳을 원하세요?"]
+  "followUpQuestions": ["무료 주차 가능", "넓은 주차장", "발렛파킹"]
 }
 
 ### 예시 5: 평점 수치 명시
@@ -122,7 +122,7 @@ const SYSTEM_PROMPTS = {
   "location": "서울",
   "minRating": 4.5,
   "response": "별점 4.5 이상의 인증된 맛집들을 찾아볼게요! 🌟",
-  "followUpQuestions": ["어느 지역이 좋으세요?", "어떤 음식을 드시고 싶으세요?"]
+  "followUpQuestions": ["강남 맛집", "홍대 맛집", "한식 고평점"]
 }
 
 ### 예시 6: 특정 지역 검색 (중요! 지역명을 정확히 추출)
@@ -136,7 +136,7 @@ const SYSTEM_PROMPTS = {
   "keywords": ["동묘앞역", "카페", "근처"],
   "location": "동묘앞역",
   "response": "동묘앞역 근처 카페를 찾아볼게요! ☕",
-  "followUpQuestions": ["조용한 곳이 좋으세요?", "디저트가 맛있는 곳을 원하세요?"]
+  "followUpQuestions": ["조용한 곳", "디저트 맛집", "분위기 좋은 카페"]
 }
 
 ### 예시 7: 지하철역 근처 검색
@@ -150,7 +150,7 @@ const SYSTEM_PROMPTS = {
   "keywords": ["잠실역", "맛집"],
   "location": "잠실역",
   "response": "잠실역 근처 맛집을 찾아볼게요! 🍽️",
-  "followUpQuestions": ["어떤 음식을 드시고 싶으세요?", "예산은 어느 정도인가요?"]
+  "followUpQuestions": ["한식", "일식", "가성비 맛집"]
 }
 
 ### 예시 8: 지역 약어 → 정식명 변환 (중요!)
@@ -164,7 +164,7 @@ const SYSTEM_PROMPTS = {
   "keywords": ["홍대", "카페"],
   "location": "홍대입구역",
   "response": "홍대 근처 카페를 찾아볼게요! ☕",
-  "followUpQuestions": ["어떤 분위기를 원하세요?", "디저트도 맛있는 곳이 좋으세요?"]
+  "followUpQuestions": ["분위기 좋은 곳", "디저트 맛집", "인스타 감성"]
 }
 
 ### 예시 9: 조사 제거 + 상황 추출
@@ -180,7 +180,7 @@ const SYSTEM_PROMPTS = {
   "atmosphere": ["로맨틱", "분위기좋은"],
   "situation": "데이트",
   "response": "강남역 근처 데이트하기 좋은 곳을 찾아볼게요! 💑",
-  "followUpQuestions": ["식사 위주인가요, 카페 위주인가요?", "예산은 어느 정도인가요?"]
+  "followUpQuestions": ["레스토랑 추천", "카페 추천", "고급 레스토랑"]
 }
 
 ### 예시 10: 컨텍스트 활용 - 이전 지역 유지
@@ -195,7 +195,7 @@ const SYSTEM_PROMPTS = {
   "keywords": ["성수동", "맛집", "밥집"],
   "location": "성수동",
   "response": "성수동에서 맛집을 찾아볼게요! 🍚",
-  "followUpQuestions": ["어떤 음식이 드시고 싶으세요?", "가격대는 어떻게 되나요?"]
+  "followUpQuestions": ["한식", "양식", "가성비 맛집"]
 }
 
 ### 예시 11: 상세 위치 → 핵심 지역만 추출
@@ -209,7 +209,7 @@ const SYSTEM_PROMPTS = {
   "keywords": ["강남역", "술집", "10번출구"],
   "location": "강남역",
   "response": "강남역 근처 술집을 찾아볼게요! 🍺",
-  "followUpQuestions": ["어떤 분위기를 원하세요?", "안주가 맛있는 곳이 좋으세요?"]
+  "followUpQuestions": ["분위기 좋은 바", "안주 맛집", "이자카야"]
 }
 
 ## 필수 스키마:
@@ -599,7 +599,7 @@ ${placesInfo}
       specialRequests: [],
       minRating,
       response: `${safeQuery}로 검색해볼게요! 🔍`,
-      followUpQuestions: ['주차 가능한 곳은?', '평점 높은 곳만 보여줘'],
+      followUpQuestions: ['주차 가능', '평점 높은 곳', '분위기 좋은 곳'],
       places: [],
     };
 
