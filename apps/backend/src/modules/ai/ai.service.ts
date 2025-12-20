@@ -673,7 +673,10 @@ ${placesInfo}
     intent: AiQueryIntent,
     llmLocation?: string,  // LLM이 추출한 지역명
   ): string {
-    const base = (parsedQuery || '').trim() || userInput.trim();
+    // 먼저 불필요한 텍스트 제거
+    const cleanedInput = this.cleanSearchQuery(userInput);
+    const cleanedParsed = this.cleanSearchQuery(parsedQuery);
+    const base = cleanedParsed || cleanedInput;
 
     // 위치 우선순위: LLM 추출값 > 정규식 폴백 > 기본값
     const foundLocation = llmLocation || this.extractLocationFallback(userInput) || this.extractLocationFallback(base) || '서울';
@@ -684,14 +687,14 @@ ${placesInfo}
 
     if (base.length < 2 || /할$/.test(base) || /키워드/.test(base)) {
       // "데이트할", "키워드" 등 검색 불가한 경우
-      if (userInput.includes('데이트')) return build('데이트 맛집');
-      if (userInput.includes('회식')) return build('회식 맛집');
+      if (cleanedInput.includes('데이트')) return build('데이트 맛집');
+      if (cleanedInput.includes('회식')) return build('회식 맛집');
       return build('맛집');
     }
 
     // LLM이 지역을 추출했거나 검색어에 이미 위치가 포함된 경우
     if (llmLocation || this.extractLocationFallback(base)) {
-      // 검색어에 지역이 이미 포함되어 있으면 그대로 사용
+      // 검색어에 지역이 이미 포함되어 있으면 정리된 검색어 사용
       if (this.extractLocationFallback(base)) {
         return base.slice(0, 50);
       }
@@ -702,10 +705,10 @@ ${placesInfo}
     }
 
     // 위치가 없고 카테고리만 있는 경우 위치 추가
-    if (base.includes('데이트') || userInput.includes('데이트')) {
+    if (base.includes('데이트') || cleanedInput.includes('데이트')) {
       return build('데이트 맛집');
     }
-    if (base.includes('회식') || userInput.includes('회식')) {
+    if (base.includes('회식') || cleanedInput.includes('회식')) {
       return build('회식 맛집');
     }
     if (base.includes('맛집')) {
@@ -724,6 +727,27 @@ ${placesInfo}
     }
 
     return base.slice(0, 50);
+  }
+
+  /**
+   * 검색어에서 불필요한 텍스트 제거
+   * "동묘앞역 근처 카페 찾아줘." → "동묘앞역 카페"
+   */
+  private cleanSearchQuery(query: string): string {
+    if (!query) return '';
+
+    return query
+      // 종결어미/요청 표현 제거
+      .replace(/[.!?]+$/g, '')                    // 마침표, 느낌표, 물음표
+      .replace(/\s*(찾아줘|추천해줘|알려줘|보여줘|가르쳐줘|소개해줘)\s*/g, ' ')
+      .replace(/\s*(찾아주세요|추천해주세요|알려주세요|보여주세요)\s*/g, ' ')
+      .replace(/\s*(찾아|추천해|알려|보여|가자|갈래|갈까|먹자|먹을래|먹을까)\s*/g, ' ')
+      .replace(/\s*(있어|있나|있을까|어디야|어딨어)\s*/g, ' ')
+      .replace(/\s*(좀|한번|좋은|맛있는|괜찮은|멋진)\s*/g, ' ')  // 부사/형용사
+      // 불필요한 조사 정리
+      .replace(/\s*(근처|주변|앞|뒤|옆)에?\s*/g, ' ')
+      .replace(/\s+/g, ' ')                        // 연속 공백 제거
+      .trim();
   }
 
   /**
