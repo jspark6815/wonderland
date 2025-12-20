@@ -538,11 +538,9 @@ ${placesInfo}
    */
   private sanitizeSearchQuery(userInput: string, parsedQuery: string, intent: AiQueryIntent): string {
     const base = (parsedQuery || '').trim() || userInput.trim();
-    const lower = base.toLowerCase();
 
-    // 위치 추출 (간단 매칭)
-    const locations = ['강남', '홍대', '성수', '잠실', '명동', '이태원', '신촌', '건대', '종로', '서울'];
-    const foundLocation = locations.find((loc) => base.includes(loc)) || '서울';
+    // 위치 추출 (개선된 로직)
+    const foundLocation = this.extractLocation(userInput) || this.extractLocation(base) || '서울';
 
     const build = (keyword: string) => `${foundLocation} ${keyword}`.trim().slice(0, 50);
 
@@ -553,6 +551,13 @@ ${placesInfo}
       return build('맛집');
     }
 
+    // 이미 위치가 포함된 검색어는 그대로 사용 (동묘앞역 카페 → 동묘앞역 카페)
+    const hasLocation = this.extractLocation(base);
+    if (hasLocation) {
+      return base.slice(0, 50);
+    }
+
+    // 위치가 없고 카테고리만 있는 경우 위치 추가
     if (base.includes('데이트') || userInput.includes('데이트')) {
       return build('데이트 맛집');
     }
@@ -575,6 +580,36 @@ ${placesInfo}
     }
 
     return base.slice(0, 50);
+  }
+
+  /**
+   * 텍스트에서 지역명 추출 (정규식 패턴 + 리스트 매칭)
+   */
+  private extractLocation(text: string): string | null {
+    if (!text) return null;
+
+    // 1. ~역 패턴 (동묘앞역, 강남역, 홍대입구역 등)
+    const stationMatch = text.match(/([가-힣]+역)/);
+    if (stationMatch) return stationMatch[1];
+
+    // 2. ~동 패턴 (성수동, 연남동 등)
+    const dongMatch = text.match(/([가-힣]+동)(?:\s|$|,)/);
+    if (dongMatch) return dongMatch[1];
+
+    // 3. ~구 패턴 (강남구, 종로구 등)
+    const guMatch = text.match(/([가-힣]+구)(?:\s|$|,)/);
+    if (guMatch) return guMatch[1];
+
+    // 4. 알려진 지역명 리스트
+    const knownLocations = [
+      '강남', '홍대', '성수', '잠실', '명동', '이태원', '신촌', '건대', '종로',
+      '합정', '망원', '연남', '을지로', '익선동', '북촌', '삼청동', '압구정',
+      '청담', '가로수길', '한남', '용산', '여의도', '광화문', '종각', '동대문',
+    ];
+    const found = knownLocations.find((loc) => text.includes(loc));
+    if (found) return found;
+
+    return null;
   }
 
   /**
