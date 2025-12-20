@@ -125,6 +125,34 @@ const SYSTEM_PROMPTS = {
   "followUpQuestions": ["어느 지역이 좋으세요?", "어떤 음식을 드시고 싶으세요?"]
 }
 
+### 예시 6: 특정 지역 검색 (중요! 지역명을 정확히 추출)
+입력: "동묘앞역 근처 카페 찾아줘"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "동묘앞역 카페",
+  "suggestedQueries": ["동묘앞역 분위기 카페", "동대문 카페"],
+  "categories": ["카페"],
+  "keywords": ["동묘앞역", "카페", "근처"],
+  "location": "동묘앞역",
+  "response": "동묘앞역 근처 카페를 찾아볼게요! ☕",
+  "followUpQuestions": ["조용한 곳이 좋으세요?", "디저트가 맛있는 곳을 원하세요?"]
+}
+
+### 예시 7: 지하철역 근처 검색
+입력: "잠실역 맛집 추천해줘"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "잠실역 맛집",
+  "suggestedQueries": ["잠실 맛집", "석촌호수 맛집"],
+  "categories": ["음식점"],
+  "keywords": ["잠실역", "맛집"],
+  "location": "잠실역",
+  "response": "잠실역 근처 맛집을 찾아볼게요! 🍽️",
+  "followUpQuestions": ["어떤 음식을 드시고 싶으세요?", "예산은 어느 정도인가요?"]
+}
+
 ## 필수 스키마:
 ${JSON.stringify(JSON_SCHEMA, null, 2)}
 
@@ -143,8 +171,15 @@ ${JSON.stringify(JSON_SCHEMA, null, 2)}
 - "거기 말고", "그거 말고" → 이전 결과 제외하고 새 검색
 - "주차되는", "조용한" 등 조건만 있으면 → 이전 검색에 조건 추가
 
+## location 추출 규칙 (매우 중요!):
+- **~역**: "동묘앞역", "강남역", "홍대입구역" → location: "동묘앞역", "강남역", "홍대입구역"
+- **~동**: "성수동", "연남동" → location: "성수동", "연남동"
+- **~구**: "강남구", "종로구" → location: "강남구", "종로구"
+- 지역 키워드: "홍대", "강남", "성수" 등 → 해당 지역으로 설정
+- **지역이 명시되지 않으면**: location: "서울" (기본값)
+
 ## searchQuery 생성 규칙:
-- 지역 없으면 "서울" 기본값
+- searchQuery에도 지역을 포함: "동묘앞역 카페", "강남 맛집"
 - 상황(데이트, 회식) + 카테고리(맛집, 카페) 조합
 - 컨텍스트의 lastLocation이 있으면 해당 지역 유지`,
 };
@@ -316,7 +351,9 @@ ${contextInfo}${ratingHint}
       
       const intent = this.normalizeIntent(getString(parsed, 'intent'));
       const rawSearchQuery = getString(parsed, 'searchQuery') || dto.query;
-      const searchQuery = this.sanitizeSearchQuery(dto.query, rawSearchQuery, intent);
+      // LLM이 추출한 location을 우선 사용
+      const llmLocation = getString(parsed, 'location') || undefined;
+      const searchQuery = this.sanitizeSearchQuery(dto.query, rawSearchQuery, intent, llmLocation);
       const minRating = this.detectMinRating(dto.query);
       
       const result: InterpretedQuery = {
@@ -328,7 +365,7 @@ ${contextInfo}${ratingHint}
         ),
         categories: this.normalizeCategories(getStringArray(parsed, 'categories') || []),
         keywords: getStringArray(parsed, 'keywords') || [dto.query],
-        location: getString(parsed, 'location') || undefined,
+        location: llmLocation,
         atmosphere: getStringArray(parsed, 'atmosphere') || [],
         priceRange: this.normalizePriceRange(getString(parsed, 'priceRange')),
         situation: getString(parsed, 'situation') || undefined,
@@ -452,8 +489,8 @@ ${placesInfo}
   }
 
   private async fallbackInterpretation(query: string): Promise<InterpretedQuery> {
-    // LLM 실패 시에도 즉시 검색 가능한 검색어로 보정
-    const safeQuery = this.sanitizeSearchQuery(query, query, 'SEARCH_IMMEDIATELY');
+    // LLM 실패 시에도 즉시 검색 가능한 검색어로 보정 (llmLocation은 undefined)
+    const safeQuery = this.sanitizeSearchQuery(query, query, 'SEARCH_IMMEDIATELY', undefined);
     const minRating = this.detectMinRating(query);
 
     const result: InterpretedQuery = {
@@ -534,13 +571,21 @@ ${placesInfo}
 
   /**
    * LLM이 만들어낸 searchQuery가 모호할 때 보정
+   * - LLM이 추출한 location을 우선 사용 (AI가 지역을 추출)
    * - 데이트/회식/카페/맛집 등 키워드를 지역과 결합해 검색 가능하게 만듦
    */
-  private sanitizeSearchQuery(userInput: string, parsedQuery: string, intent: AiQueryIntent): string {
+  private sanitizeSearchQuery(
+    userInput: string, 
+    parsedQuery: string, 
+    intent: AiQueryIntent,
+    llmLocation?: string,  // LLM이 추출한 지역명
+  ): string {
     const base = (parsedQuery || '').trim() || userInput.trim();
 
-    // 위치 추출 (개선된 로직)
-    const foundLocation = this.extractLocation(userInput) || this.extractLocation(base) || '서울';
+    // 위치 우선순위: LLM 추출값 > 정규식 폴백 > 기본값
+    const foundLocation = llmLocation || this.extractLocationFallback(userInput) || this.extractLocationFallback(base) || '서울';
+    
+    this.logger.debug(`Location extraction: llm="${llmLocation}", fallback="${this.extractLocationFallback(userInput)}", final="${foundLocation}"`);
 
     const build = (keyword: string) => `${foundLocation} ${keyword}`.trim().slice(0, 50);
 
@@ -551,10 +596,16 @@ ${placesInfo}
       return build('맛집');
     }
 
-    // 이미 위치가 포함된 검색어는 그대로 사용 (동묘앞역 카페 → 동묘앞역 카페)
-    const hasLocation = this.extractLocation(base);
-    if (hasLocation) {
-      return base.slice(0, 50);
+    // LLM이 지역을 추출했거나 검색어에 이미 위치가 포함된 경우
+    if (llmLocation || this.extractLocationFallback(base)) {
+      // 검색어에 지역이 이미 포함되어 있으면 그대로 사용
+      if (this.extractLocationFallback(base)) {
+        return base.slice(0, 50);
+      }
+      // LLM이 지역을 추출했지만 검색어에 없으면 지역 추가
+      if (base.includes('카페') || base.includes('맛집') || base.includes('술집')) {
+        return `${foundLocation} ${base}`.trim().slice(0, 50);
+      }
     }
 
     // 위치가 없고 카테고리만 있는 경우 위치 추가
@@ -583,9 +634,9 @@ ${placesInfo}
   }
 
   /**
-   * 텍스트에서 지역명 추출 (정규식 패턴 + 리스트 매칭)
+   * 정규식 폴백: LLM이 지역 추출 실패 시 사용
    */
-  private extractLocation(text: string): string | null {
+  private extractLocationFallback(text: string): string | null {
     if (!text) return null;
 
     // 1. ~역 패턴 (동묘앞역, 강남역, 홍대입구역 등)
@@ -599,15 +650,6 @@ ${placesInfo}
     // 3. ~구 패턴 (강남구, 종로구 등)
     const guMatch = text.match(/([가-힣]+구)(?:\s|$|,)/);
     if (guMatch) return guMatch[1];
-
-    // 4. 알려진 지역명 리스트
-    const knownLocations = [
-      '강남', '홍대', '성수', '잠실', '명동', '이태원', '신촌', '건대', '종로',
-      '합정', '망원', '연남', '을지로', '익선동', '북촌', '삼청동', '압구정',
-      '청담', '가로수길', '한남', '용산', '여의도', '광화문', '종각', '동대문',
-    ];
-    const found = knownLocations.find((loc) => text.includes(loc));
-    if (found) return found;
 
     return null;
   }
