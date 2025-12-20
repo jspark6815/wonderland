@@ -4,6 +4,10 @@
 
 Naver Map과 AI를 활용하여 사용자에게 최적의 장소를 추천하는 웹 애플리케이션입니다.
 
+`소개 Notion`
+
+https://jspark6815.notion.site/2cf44925e43b808a8343c0dc8ef7ea64?source=copy_link
+
 ---
 
 ## 📋 목차
