@@ -51,7 +51,7 @@ export class PlacesController {
     const results = await this.placesService.searchPlaces(searchDto);
     
     // P1-2: Express Request 타입 확장 적용 (캐스팅 불필요)
-    const userId = req.user?.sub;
+    const userId = (req.user as any)?.sub;
     if (userId && searchDto.query) {
       this.searchHistoryService.saveSearch({
         userId,
@@ -142,7 +142,7 @@ export class PlacesController {
     @Query() dto: GetSearchHistoryDto,
   ): Promise<SearchHistoryResponseDto[]> {
     // P1-2: Express Request 타입 확장 적용
-    const userId = req.user?.sub;
+    const userId = (req.user as any)?.sub;
     if (!userId) {
       return [];
     }
@@ -160,7 +160,7 @@ export class PlacesController {
   async getLastSearchHistory(
     @Req() req: Request,
   ): Promise<SearchHistoryResponseDto | null> {
-    const userId = req.user?.sub;
+    const userId = (req.user as any)?.sub;
     if (!userId) {
       return null;
     }
@@ -178,7 +178,7 @@ export class PlacesController {
     @Req() req: Request,
     @Param('id') searchId: string,
   ): Promise<{ deleted: boolean }> {
-    const userId = req.user?.sub;
+    const userId = (req.user as any)?.sub;
     if (!userId) {
       return { deleted: false };
     }
@@ -196,7 +196,7 @@ export class PlacesController {
   async clearSearchHistory(
     @Req() req: Request,
   ): Promise<{ deletedCount: number }> {
-    const userId = req.user?.sub;
+    const userId = (req.user as any)?.sub;
     if (!userId) {
       return { deletedCount: 0 };
     }
@@ -249,7 +249,7 @@ export class PlacesController {
     @Req() req: Request,
   ): Promise<Place> {
     // 인증된 사용자만 장소 등록 가능
-    const userId = req.user?.sub;
+    const userId = (req.user as any)?.sub;
     if (!userId) {
       throw new UnauthorizedException('장소를 등록하려면 로그인이 필요합니다.');
     }
@@ -279,11 +279,42 @@ export class PlacesController {
     @Req() req: Request,
   ): Promise<Place> {
     // 인증된 사용자만 즐겨찾기 토글 가능
-    const userId = req.user?.sub;
+    const userId = (req.user as any)?.sub;
     if (!userId) {
       throw new UnauthorizedException('즐겨찾기를 변경하려면 로그인이 필요합니다.');
     }
     
     return this.placesService.toggleFavorite(id, userId);
+  }
+
+  /**
+   * 장소 상세보기 클릭 추적 (피드백 프롬프트용)
+   * - 로그인 사용자만 추적
+   * - 검색 기록에 placeId 연결
+   */
+  @Post(':id/track-click')
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '장소 상세보기 클릭 추적' })
+  @ApiResponse({
+    status: 200,
+    description: '클릭 추적 완료',
+  })
+  async trackPlaceClick(
+    @Param('id') id: string,
+    @Req() req: Request,
+  ): Promise<{ success: boolean; message: string }> {
+    const userId = (req.user as any)?.sub;
+    if (!userId) {
+      return { success: false, message: '로그인 필요' };
+    }
+
+    try {
+      await this.searchHistoryService.trackPlaceClick(userId, id);
+      return { success: true, message: '클릭 추적 완료' };
+    } catch (error) {
+      this.logger.warn(`Failed to track place click: ${error}`);
+      return { success: false, message: '추적 실패' };
+    }
   }
 }

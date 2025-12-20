@@ -134,3 +134,18 @@ export const clearSearchHistoryAPI = async (): Promise<{ deletedCount: number }>
   const data = await apiClient.delete<{ deletedCount: number }>('/places/history');
   return data as unknown as { deletedCount: number };
 };
+
+/**
+ * 장소 상세보기 클릭 추적 (피드백 프롬프트용)
+ * - 로그인 사용자만 추적됨
+ * - 검색 기록에 placeId 연결
+ */
+export const trackPlaceClickAPI = async (placeId: string): Promise<{ success: boolean }> => {
+  try {
+    const data = await apiClient.post<{ success: boolean }>(`/places/${placeId}/track-click`);
+    return data as unknown as { success: boolean };
+  } catch {
+    // 비로그인 사용자 등 실패 시 무시
+    return { success: false };
+  }
+};

@@ -38,11 +38,11 @@ export const FeedbackPrompt: React.FC = () => {
       }
     };
 
-    // 초기 체크 (30초 후)
-    const initialTimeout = setTimeout(checkPendingFeedbacks, 30000);
+    // 초기 체크 (10초 후)
+    const initialTimeout = setTimeout(checkPendingFeedbacks, 10000);
     
-    // 이후 5분마다 체크
-    const interval = setInterval(checkPendingFeedbacks, 5 * 60 * 1000);
+    // 이후 1분마다 체크
+    const interval = setInterval(checkPendingFeedbacks, 1 * 60 * 1000);
 
     return () => {
       clearTimeout(initialTimeout);

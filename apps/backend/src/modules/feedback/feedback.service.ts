@@ -11,7 +11,7 @@ export class FeedbackService {
   private readonly logger = new Logger(FeedbackService.name);
   
   // 피드백 요청 가능 시간 (검색 후 5분)
-  private readonly FEEDBACK_DELAY_MINUTES = 5;
+  private readonly FEEDBACK_DELAY_MINUTES = 1;
 
   constructor(
     @InjectRepository(VisitFeedback)
@@ -189,13 +189,15 @@ export class FeedbackService {
   }
 
   /**
-   * 피드백 요청 대기 목록 조회 (5분 이상 지난 검색)
+   * 피드백 요청 대기 목록 조회 (N분 이상 지난 장소 클릭)
+   * - 장소 상세보기 클릭 시 placeId가 저장됨
+   * - 피드백이 아직 작성되지 않은 것만 표시
    */
   async getPendingFeedbacks(userId: string): Promise<PendingFeedbackDto[]> {
     const feedbackAvailableTime = new Date();
     feedbackAvailableTime.setMinutes(feedbackAvailableTime.getMinutes() - this.FEEDBACK_DELAY_MINUTES);
 
-    // 5분 이상 지난 검색 중 피드백이 없는 것
+    // N분 이상 지난 장소 클릭 중 피드백이 없는 것
     const searches = await this.searchHistoryRepository
       .createQueryBuilder('sh')
       .leftJoin('places', 'p', 'p.id = sh.placeId')
