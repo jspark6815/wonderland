@@ -31,6 +31,7 @@ export const useAISearch = () => {
         lastCategories: result.categories,
         lastLocation: result.location,
         lastAtmosphere: result.atmosphere,
+        lastResultCount: result.places?.length || 0, // 결과 수도 저장
       };
       
       return result as AISearchResult;

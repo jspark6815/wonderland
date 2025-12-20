@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
 import { RecommendPlaceDto } from './dto/recommend-place.dto';
 import { SummarizeReviewsDto } from './dto/summarize-reviews.dto';
-import { InterpretQueryDto } from './dto/interpret-query.dto';
+import { InterpretQueryDto, SearchContext } from './dto/interpret-query.dto';
 import { LLM_CLIENT, type LlmClient, type LlmGenerateResult } from './services/llm-client';
 import { PlacesService } from '../places/places.service';
 
@@ -19,6 +19,7 @@ const JSON_SCHEMA = {
   priceRange: 'string | null (가격대)',
   situation: 'string | null (상황)',
   specialRequests: 'string[] (특별 요청)',
+  minRating: 'number | null (최소 평점 필터, 0~5 사이. 평점 높은/별점 언급 시 설정)',
   response: 'string (사용자에게 보여줄 친근한 응답)',
   followUpQuestions: 'string[] (후속 질문)',
 };
@@ -42,32 +43,110 @@ const SYSTEM_PROMPTS = {
 사용자의 자연어 입력을 분석하여 검색에 필요한 **구조화된 JSON**을 반환합니다.
 
 ## 핵심 원칙
-**사용자가 장소 추천을 요청하면, 반드시 검색 가능한 구체적인 검색어(searchQuery)를 생성하세요.**
-막연한 요청이라도 상황에 맞는 검색어를 추론하세요.
+1. **사용자가 장소 추천을 요청하면, 반드시 검색 가능한 구체적인 검색어(searchQuery)를 생성하세요.**
+2. **이전 대화 컨텍스트가 있으면 반드시 참고하세요.** (후속 질문 처리)
+3. **평점/별점 요청이 있으면 minRating 값을 추출하세요.**
 
-예시:
-- "데이트 장소 추천해줘" → searchQuery: "서울 데이트 맛집" 또는 "강남 분위기 좋은 레스토랑"
-- "비 오는 날 가기 좋은 곳" → searchQuery: "서울 실내 데이트 카페"
-- "회식 장소 추천" → searchQuery: "강남 회식 맛집"
-- "힐링하고 싶어" → searchQuery: "서울 조용한 카페" 또는 "한강 뷰 카페"
+## Few-shot 예시 (이 패턴을 따르세요):
 
-## 필수 스키마 (이 형식을 정확히 따르세요):
+### 예시 1: 기본 추천 요청
+입력: "데이트 장소 추천해줘"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "서울 데이트 맛집",
+  "suggestedQueries": ["강남 데이트 맛집", "홍대 분위기 좋은 레스토랑"],
+  "categories": ["음식점"],
+  "keywords": ["데이트", "맛집", "분위기"],
+  "location": "서울",
+  "atmosphere": ["로맨틱", "분위기좋은"],
+  "situation": "데이트",
+  "response": "데이트에 딱 맞는 분위기 좋은 곳들을 찾아볼게요! 💕",
+  "followUpQuestions": ["어느 지역이 좋으세요?", "예산은 어느 정도로 생각하세요?"]
+}
+
+### 예시 2: 평점 필터 요청
+입력: "평점 높은 카페 추천해줘"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "서울 카페",
+  "suggestedQueries": ["강남 인기 카페", "성수 평점 좋은 카페"],
+  "categories": ["카페"],
+  "keywords": ["카페", "평점높은", "인기"],
+  "location": "서울",
+  "minRating": 4.3,
+  "response": "평점 4.3 이상의 인기 카페들을 찾아볼게요! ⭐",
+  "followUpQuestions": ["어떤 분위기를 원하세요?", "디저트가 맛있는 곳을 찾으세요?"]
+}
+
+### 예시 3: 후속 질문 (컨텍스트 활용)
+이전 검색: "강남 맛집" → 결과 5개
+입력: "다른 곳은 없어?"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "강남 맛집",
+  "suggestedQueries": ["강남역 맛집", "신논현 맛집", "강남 숨은 맛집"],
+  "categories": ["음식점"],
+  "keywords": ["강남", "맛집", "새로운"],
+  "location": "강남",
+  "response": "강남에서 다른 맛집들을 더 찾아볼게요! 🔍",
+  "followUpQuestions": ["어떤 음식 종류를 원하세요?", "가격대는 어떻게 되나요?"]
+}
+
+### 예시 4: 조건 추가 (컨텍스트 활용)
+이전 검색: "홍대 카페"
+입력: "주차되는 곳으로"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "홍대 주차 카페",
+  "suggestedQueries": ["홍대입구 주차가능 카페", "연남동 주차 카페"],
+  "categories": ["카페"],
+  "keywords": ["홍대", "카페", "주차"],
+  "location": "홍대",
+  "specialRequests": ["주차가능"],
+  "response": "홍대 근처 주차 가능한 카페를 찾아볼게요! 🚗",
+  "followUpQuestions": ["무료 주차가 필요하세요?", "넓은 주차장이 있는 곳을 원하세요?"]
+}
+
+### 예시 5: 평점 수치 명시
+입력: "별점 4.5 이상 맛집 찾아줘"
+출력:
+{
+  "intent": "SEARCH_IMMEDIATELY",
+  "searchQuery": "서울 맛집",
+  "categories": ["음식점"],
+  "keywords": ["맛집", "고평점"],
+  "location": "서울",
+  "minRating": 4.5,
+  "response": "별점 4.5 이상의 인증된 맛집들을 찾아볼게요! 🌟",
+  "followUpQuestions": ["어느 지역이 좋으세요?", "어떤 음식을 드시고 싶으세요?"]
+}
+
+## 필수 스키마:
 ${JSON.stringify(JSON_SCHEMA, null, 2)}
 
 ## intent 값 정의:
-- **SEARCH_IMMEDIATELY**: 명확한 검색어가 있거나, 추론할 수 있는 경우. 대부분의 장소 추천 요청은 여기에 해당합니다.
-- **NEED_MORE_INFO**: 정말로 아무 힌트도 없는 경우만 (예: "추천해줘", "뭐 있어?"). 단, 가능하면 SEARCH_IMMEDIATELY로 처리하세요.
-- **RECOMMEND_THEMES**: 테마 기반 추천 (예: "비 오는 날", "힐링") - 이 경우에도 searchQuery를 반드시 생성하세요.
+- **SEARCH_IMMEDIATELY**: 명확한 검색어가 있거나 추론 가능한 경우 (대부분 여기)
+- **NEED_MORE_INFO**: 정말 힌트가 없는 경우만 (예: "추천해줘", "뭐 있어?")
+- **RECOMMEND_THEMES**: 테마 기반 추천 (비 오는 날, 힐링 등) - searchQuery 필수
 
-## searchQuery 생성 규칙 (매우 중요):
-- 모든 intent에서 searchQuery를 반드시 생성하세요.
-- 지역이 명시되지 않으면 "서울"을 기본값으로 사용하세요.
-- 상황(데이트, 회식, 혼밥 등)을 카테고리(맛집, 카페, 술집)와 조합하세요.
-- 예: "데이트" + 미지정 = "서울 데이트 맛집"
+## 평점/별점 처리 규칙 (minRating):
+- "평점 높은", "별점 좋은" → minRating: 4.3
+- "평점 4.0 이상", "별점 4.2" → 해당 숫자를 minRating으로 설정
+- 평점 언급이 없으면 minRating 필드 생략
 
-## response 필드 작성 원칙:
-- 항상 친근하고 기대감을 주는 멘트로 작성하세요.
-- 예: "데이트에 딱 맞는 분위기 좋은 곳들을 찾아봤어요! 💕"`,
+## 컨텍스트 활용 규칙:
+- "다른 곳", "더 없어?", "또 뭐 있어?" → 이전 검색어 기반으로 새 결과 요청
+- "거기 말고", "그거 말고" → 이전 결과 제외하고 새 검색
+- "주차되는", "조용한" 등 조건만 있으면 → 이전 검색에 조건 추가
+
+## searchQuery 생성 규칙:
+- 지역 없으면 "서울" 기본값
+- 상황(데이트, 회식) + 카테고리(맛집, 카페) 조합
+- 컨텍스트의 lastLocation이 있으면 해당 지역 유지`,
 };
 
 export type AiQueryIntent = 'SEARCH_IMMEDIATELY' | 'NEED_MORE_INFO' | 'RECOMMEND_THEMES' | 'SUGGEST_QUERY' | 'REFINE_CONTEXT';
@@ -197,12 +276,21 @@ ${dto.reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}
   }
 
   /**
-   * 자연어 쿼리 해석 (고도화 - 시나리오 분기)
+   * 자연어 쿼리 해석 (고도화 - 시나리오 분기 + 컨텍스트 활용)
    */
   async interpretQuery(dto: InterpretQueryDto): Promise<InterpretedQuery> {
     this.logger.debug(`Interpreting query: ${dto.query}`);
     
+    // 컨텍스트 정보 구성
+    const contextInfo = this.buildContextPrompt(dto.context);
+    
+    // 평점 필터 힌트
+    const ratingHint = dto.minRating 
+      ? `\n## 사용자 요청 평점 필터: ${dto.minRating} 이상`
+      : '';
+    
     const prompt = `${SYSTEM_PROMPTS.QUERY_INTERPRETER}
+${contextInfo}${ratingHint}
 
 ## 사용자 입력
 "${dto.query}"
@@ -558,5 +646,43 @@ ${placesInfo}
 
     // "평점만" "좋은곳" 등의 모호한 경우는 기본값 미설정
     return undefined;
+  }
+
+  /**
+   * 이전 대화 컨텍스트를 프롬프트용 문자열로 변환
+   */
+  private buildContextPrompt(context?: SearchContext): string {
+    if (!context) return '';
+    
+    const parts: string[] = [];
+    
+    if (context.lastSearchQuery) {
+      parts.push(`- 이전 검색어: "${context.lastSearchQuery}"`);
+    }
+    if (context.lastLocation) {
+      parts.push(`- 이전 검색 지역: ${context.lastLocation}`);
+    }
+    if (context.lastCategories && context.lastCategories.length > 0) {
+      parts.push(`- 이전 검색 카테고리: ${context.lastCategories.join(', ')}`);
+    }
+    if (context.lastKeywords && context.lastKeywords.length > 0) {
+      parts.push(`- 이전 검색 키워드: ${context.lastKeywords.join(', ')}`);
+    }
+    if (context.lastAtmosphere && context.lastAtmosphere.length > 0) {
+      parts.push(`- 이전 검색 분위기: ${context.lastAtmosphere.join(', ')}`);
+    }
+    if (context.lastResultCount !== undefined) {
+      parts.push(`- 이전 검색 결과 수: ${context.lastResultCount}개`);
+    }
+    
+    if (parts.length === 0) return '';
+    
+    return `
+
+## 이전 대화 컨텍스트 (후속 질문 시 반드시 참고하세요!)
+${parts.join('\n')}
+
+※ 사용자가 "다른 곳", "더 없어?", "주차되는 곳으로" 등 후속 질문을 하면,
+   위 컨텍스트를 기반으로 검색어를 구성하세요.`;
   }
 }

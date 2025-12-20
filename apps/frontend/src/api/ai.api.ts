@@ -33,6 +33,7 @@ export interface SearchContext {
   lastCategories?: string[];
   lastLocation?: string;
   lastAtmosphere?: string[];
+  lastResultCount?: number; // 이전 검색 결과 수
 }
 
 /**
@@ -71,6 +72,8 @@ const parseSseLines = (raw: string): Array<{ event: string; data: string }> => {
 const aiInterpretStream = async (
   query: string,
   headers: Record<string, string>,
+  context?: SearchContext,
+  minRating?: number,
 ): Promise<InterpretedQuery> => {
   const res = await fetch(`${API_BASE_URL}/ai/interpret/stream`, {
     method: 'POST',
@@ -79,7 +82,7 @@ const aiInterpretStream = async (
       Accept: 'text/event-stream',
       ...headers,
     },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, context, minRating }),
   });
 
   if (!res.ok || !res.body) {
@@ -309,17 +312,41 @@ const generateFollowUpQuestions = (
 };
 
 /**
+ * 평점 요청 감지
+ */
+const detectMinRating = (query: string): number | undefined => {
+  const normalized = query.replace(/\s+/g, '').toLowerCase();
+  
+  // 숫자 평점 명시 (예: 평점4.2, 별점4.5)
+  const numMatch = normalized.match(/(?:평점|별점)(\d(?:\.\d)?)/);
+  if (numMatch && numMatch[1]) {
+    const val = parseFloat(numMatch[1]);
+    if (!isNaN(val) && val >= 0 && val <= 5) return val;
+  }
+  
+  // "평점높은", "별점높은" 등 키워드
+  if (normalized.includes('평점높') || normalized.includes('별점높')) {
+    return 4.3;
+  }
+  
+  return undefined;
+};
+
+/**
  * AI를 통한 자연어 검색
  */
 export const aiSearchAPI = async (query: string, context?: SearchContext): Promise<AISearchResponse> => {
   // 후속 질문 감지
   const isFollowUp = isFollowUpQuery(query);
   
-  // 후속 질문이면 이전 컨텍스트와 합쳐서 전달
-  let enhancedQuery = query;
-  if (isFollowUp && context?.lastSearchQuery) {
-    enhancedQuery = `이전 검색: "${context.lastSearchQuery}". 추가 조건: ${query}`;
-  }
+  // 평점 필터 감지
+  const minRating = detectMinRating(query);
+  
+  // 후속 질문이면 컨텍스트 정보 그대로 전달 (백엔드에서 처리)
+  const contextWithResultCount = context ? {
+    ...context,
+    lastResultCount: context.lastResultCount || undefined,
+  } : undefined;
 
   try {
     // 토큰 가져오기
@@ -328,8 +355,12 @@ export const aiSearchAPI = async (query: string, context?: SearchContext): Promi
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const result = AI_INTERPRET_STREAM_ENABLED
-      ? await aiInterpretStream(enhancedQuery, headers)
-      : await aiClient.post<unknown, InterpretedQuery>('/ai/interpret', { query: enhancedQuery }, { headers });
+      ? await aiInterpretStream(query, headers, contextWithResultCount, minRating)
+      : await aiClient.post<unknown, InterpretedQuery>('/ai/interpret', { 
+          query, 
+          context: contextWithResultCount,
+          minRating,
+        }, { headers });
     
     // 후속 질문이면 이전 컨텍스트와 병합
     let mergedKeywords = result.keywords || [];
