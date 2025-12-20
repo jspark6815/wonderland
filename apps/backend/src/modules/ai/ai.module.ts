@@ -6,6 +6,7 @@ import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { OllamaService } from './services/ollama.service';
 import { GeminiService } from './services/gemini.service';
+import { AiCacheService } from './services/ai-cache.service';
 import { LLM_CLIENT, type LlmClient } from './services/llm-client';
 import { PlacesModule } from '../places/places.module';
 
@@ -20,6 +21,7 @@ import { PlacesModule } from '../places/places.module';
     AiService,
     OllamaService,
     GeminiService,
+    AiCacheService, // AI 쿼리 캐시 (토큰 절약)
     {
       provide: LLM_CLIENT,
       inject: [ConfigService, OllamaService, GeminiService],
@@ -30,6 +32,6 @@ import { PlacesModule } from '../places/places.module';
       },
     },
   ],
-  exports: [AiService],
+  exports: [AiService, AiCacheService],
 })
 export class AiModule {}

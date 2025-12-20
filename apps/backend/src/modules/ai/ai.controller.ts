@@ -3,12 +3,14 @@ import {
   Post,
   Body,
   Get,
+  Delete,
   Res,
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AiService, InterpretedQuery } from './ai.service';
+import { AiCacheService } from './services/ai-cache.service';
 import { PlacesService } from '../places/places.service';
 import { RecommendPlaceDto } from './dto/recommend-place.dto';
 import { SummarizeReviewsDto } from './dto/summarize-reviews.dto';
@@ -30,6 +32,7 @@ export class AiController {
   constructor(
     private readonly aiService: AiService,
     private readonly placesService: PlacesService,
+    private readonly aiCacheService: AiCacheService,
   ) {}
 
   @Post('recommend')
@@ -192,5 +195,41 @@ export class AiController {
         timestamp: new Date().toISOString(),
       };
     }
+  }
+
+  /**
+   * AI 캐시 통계 조회
+   * - 토큰 절약량, 히트율 등 확인
+   */
+  @Get('cache/stats')
+  @Public()
+  @ApiOperation({ summary: 'AI 캐시 통계 조회' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: '캐시 통계',
+    schema: {
+      example: {
+        hits: 150,
+        misses: 50,
+        totalItems: 42,
+        totalTokensSaved: 75000,
+        hitRate: '75.00%',
+      },
+    },
+  })
+  getCacheStats(): { hits: number; misses: number; totalItems: number; totalTokensSaved: number; hitRate: string } {
+    return this.aiCacheService.getStats();
+  }
+
+  /**
+   * AI 캐시 초기화
+   * - 개발/테스트 시 캐시 클리어
+   */
+  @Delete('cache')
+  @ApiOperation({ summary: 'AI 캐시 초기화' })
+  @ApiResponse({ status: HttpStatus.OK, description: '캐시 초기화 완료' })
+  clearCache() {
+    this.aiCacheService.clear();
+    return { success: true, message: 'AI 캐시가 초기화되었습니다.' };
   }
 }

@@ -3,6 +3,7 @@ import { RecommendPlaceDto } from './dto/recommend-place.dto';
 import { SummarizeReviewsDto } from './dto/summarize-reviews.dto';
 import { InterpretQueryDto, SearchContext } from './dto/interpret-query.dto';
 import { LLM_CLIENT, type LlmClient, type LlmGenerateResult } from './services/llm-client';
+import { AiCacheService } from './services/ai-cache.service';
 import { PlacesService } from '../places/places.service';
 
 // JSON 스키마 정의 (고정)
@@ -327,6 +328,7 @@ export class AiService {
   constructor(
     @Inject(LLM_CLIENT) private readonly llm: LlmClient,
     @Inject(forwardRef(() => PlacesService)) private readonly placesService: PlacesService,
+    private readonly aiCache: AiCacheService,
   ) {}
 
   getModelInfo(): AiModelInfo {
@@ -404,11 +406,29 @@ ${dto.reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
   /**
    * 자연어 쿼리 해석 (고도화 - 시나리오 분기 + 컨텍스트 활용)
+   * 
+   * 캐싱 전략:
+   * - 동일한 쿼리 + 컨텍스트 조합에 대해 캐시된 결과 반환
+   * - 토큰 낭비 방지 (평균 500 토큰/요청 절약)
+   * - TTL: 5분 (기본값)
    */
   async interpretQuery(dto: InterpretQueryDto): Promise<InterpretedQuery> {
     this.logger.debug(`Interpreting query: ${dto.query}`);
     
-    // 컨텍스트 정보 구성
+    // 1. 캐시 키 생성 및 조회
+    const cacheKey = this.aiCache.generateKey(dto.query, dto.context as Record<string, unknown>);
+    const cached = this.aiCache.get<InterpretedQuery>(cacheKey);
+    
+    if (cached) {
+      this.logger.debug(`Cache HIT for query: "${dto.query}" (key: ${cacheKey})`);
+      // 캐시된 결과라도 places는 최신 데이터로 갱신 (선택적)
+      // 여기서는 캐시된 places 그대로 반환 (빠른 응답 우선)
+      return cached;
+    }
+    
+    this.logger.debug(`Cache MISS for query: "${dto.query}" - calling LLM`);
+    
+    // 2. 컨텍스트 정보 구성
     const contextInfo = this.buildContextPrompt(dto.context);
     
     // 평점 필터 힌트
@@ -503,6 +523,14 @@ ${contextInfo}${ratingHint}
       }
 
       this.logger.debug(`Interpreted result: intent=${result.intent}, places=${result.places?.length}, searchQuery=${searchQuery}`);
+      
+      // 3. 결과 캐시에 저장 (TTL: 5분)
+      // 검색 결과가 있을 때만 캐시 (결과 없는 쿼리는 캐시하지 않음)
+      if (result.places && result.places.length > 0) {
+        this.aiCache.set(cacheKey, result, 300); // 5분
+        this.logger.debug(`Cached result for query: "${dto.query}" (${result.places.length} places)`);
+      }
+      
       return result;
       
     } catch (error: unknown) {
