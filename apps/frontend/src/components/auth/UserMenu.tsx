@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { AuthModal } from './AuthModal';
+import { ProfilePanel, FavoritesPanel, SettingsPanel } from './UserPanels';
 
 export const UserMenu: React.FC = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [panel, setPanel] = useState<'profile' | 'favorites' | 'settings' | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { user, isAuthenticated, logout } = useAuthStore();
@@ -100,7 +102,7 @@ export const UserMenu: React.FC = () => {
             <button
               onClick={() => {
                 setIsDropdownOpen(false);
-                // 프로필 페이지로 이동 (향후 구현)
+                setPanel('profile');
               }}
               className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-slate-300 hover:bg-slate-700/50 hover:text-white transition-colors"
             >
@@ -113,7 +115,7 @@ export const UserMenu: React.FC = () => {
             <button
               onClick={() => {
                 setIsDropdownOpen(false);
-                // 즐겨찾기 페이지로 이동 (향후 구현)
+                setPanel('favorites');
               }}
               className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-slate-300 hover:bg-slate-700/50 hover:text-white transition-colors"
             >
@@ -126,7 +128,7 @@ export const UserMenu: React.FC = () => {
             <button
               onClick={() => {
                 setIsDropdownOpen(false);
-                // 설정 페이지로 이동 (향후 구현)
+                setPanel('settings');
               }}
               className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-slate-300 hover:bg-slate-700/50 hover:text-white transition-colors"
             >
@@ -152,6 +154,11 @@ export const UserMenu: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 패널 모달 */}
+      <ProfilePanel isOpen={panel === 'profile'} onClose={() => setPanel(null)} />
+      <FavoritesPanel isOpen={panel === 'favorites'} onClose={() => setPanel(null)} />
+      <SettingsPanel isOpen={panel === 'settings'} onClose={() => setPanel(null)} />
     </div>
   );
 };

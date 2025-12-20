@@ -20,6 +20,7 @@ import {
 } from './config';
 import { AuthModule } from './modules/auth/auth.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -71,6 +72,8 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
     HealthModule,
     // 피드백 모듈 (사용자 방문 후기 수집)
     FeedbackModule,
+    // 사용자 모듈 (프로필/즐겨찾기/설정)
+    UsersModule,
     AiModule,
     PlacesModule,
   ],
