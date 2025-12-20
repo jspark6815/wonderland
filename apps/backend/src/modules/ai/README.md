@@ -19,7 +19,7 @@ This module supports selecting an LLM provider via environment variables.
 #### Gemini
 
 - `GEMINI_API_KEY`: **required** when `AI_PROVIDER=gemini`
-- `GEMINI_MODEL`: default `gemini-1.5-flash`
+- `GEMINI_MODEL`: default `gemini-2.0-flash` (또는 `gemini-1.5-flash-latest`)
 - `GEMINI_BASE_URL`: default `https://generativelanguage.googleapis.com/v1beta`
 - (optional) `GEMINI_TEMPERATURE`, `GEMINI_MAX_TOKENS`, `GEMINI_TIMEOUT`
 

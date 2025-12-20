@@ -52,7 +52,7 @@ export class GeminiService implements LlmClient {
     private readonly configService: ConfigService,
   ) {
     this.apiKey = this.configService.get<string>('ai.gemini.apiKey') || '';
-    this.model = this.configService.get<string>('ai.gemini.model') || 'gemini-1.5-flash';
+    this.model = this.configService.get<string>('ai.gemini.model') || 'gemini-2.0-flash';
     this.baseUrl =
       this.configService.get<string>('ai.gemini.baseUrl') ||
       'https://generativelanguage.googleapis.com/v1beta';

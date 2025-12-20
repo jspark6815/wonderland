@@ -25,7 +25,8 @@ export default registerAs('ai', () => ({
   // Gemini 설정
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
-    model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    // 모델명: gemini-2.0-flash (최신) 또는 gemini-1.5-flash-latest
+    model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
     baseUrl: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
   },
 }));
