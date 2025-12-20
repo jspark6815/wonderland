@@ -21,6 +21,7 @@ import {
 import { AuthModule } from './modules/auth/auth.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { UsersModule } from './modules/users/users.module';
+import { AuditModule } from './modules/audit/audit.module';
 
 @Module({
   imports: [
@@ -74,6 +75,8 @@ import { UsersModule } from './modules/users/users.module';
     FeedbackModule,
     // 사용자 모듈 (프로필/즐겨찾기/설정)
     UsersModule,
+    // 감사 로그 모듈 (데이터 변경 이력 추적)
+    AuditModule,
     AiModule,
     PlacesModule,
   ],

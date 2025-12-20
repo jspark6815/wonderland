@@ -207,6 +207,101 @@ export class PlacesService {
   }
 
   /**
+   * Full-text Search (PostgreSQL tsvector 활용)
+   * - ILIKE보다 훨씬 빠른 검색 성능
+   * - 형태소 분석 기반 검색 (유사어 매칭)
+   * - 검색어 가중치 적용 (이름 > 설명 > 태그)
+   */
+  async searchFullText(
+    query: string,
+    options?: {
+      category?: PlaceCategory;
+      lat?: number;
+      lng?: number;
+      radius?: number;
+      minRating?: number;
+      limit?: number;
+    },
+  ): Promise<Place[]> {
+    const { category, lat, lng, radius = 5000, minRating, limit = 20 } = options || {};
+
+    // 검색어를 tsquery 형식으로 변환 (공백 → &, 한글 지원)
+    const searchTerms = query.trim().split(/\s+/).filter(Boolean);
+    const tsQuery = searchTerms.map(term => `${term}:*`).join(' & ');
+
+    const qb = this.placeRepository.createQueryBuilder('place');
+
+    // Full-text Search 조건
+    qb.where(
+      `place."searchVector" @@ to_tsquery('simple', :tsQuery)`,
+      { tsQuery }
+    );
+
+    // Soft Delete 제외
+    qb.andWhere('place."deletedAt" IS NULL');
+
+    // 카테고리 필터
+    if (category) {
+      qb.andWhere('place.category = :category', { category });
+    }
+
+    // 위치 기반 필터
+    if (lat && lng) {
+      qb.andWhere(
+        `ST_DWithin(
+          place.location::geography,
+          ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+          :radius
+        )`,
+        { lat, lng, radius }
+      );
+
+      // 거리 계산 추가
+      qb.addSelect(
+        `ST_Distance(
+          place.location::geography,
+          ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
+        )`,
+        'distance'
+      );
+    }
+
+    // 평점 필터
+    if (minRating && minRating > 0) {
+      qb.andWhere('place.rating >= :minRating', { minRating });
+    }
+
+    // 검색 랭킹 점수 추가 (ts_rank)
+    qb.addSelect(
+      `ts_rank(place."searchVector", to_tsquery('simple', :tsQuery))`,
+      'searchRank'
+    );
+
+    // 정렬: 검색 랭킹 > 거리 > 평점
+    if (lat && lng) {
+      qb.orderBy('searchRank', 'DESC')
+        .addOrderBy('distance', 'ASC')
+        .addOrderBy('place.rating', 'DESC', 'NULLS LAST');
+    } else {
+      qb.orderBy('searchRank', 'DESC')
+        .addOrderBy('place.rating', 'DESC', 'NULLS LAST')
+        .addOrderBy('place.viewCount', 'DESC');
+    }
+
+    qb.take(limit);
+
+    const result = await qb.getRawAndEntities();
+
+    // 거리 정보 추가
+    return result.entities.map((place, index) => ({
+      ...place,
+      distance: result.raw[index]?.distance
+        ? Math.round(parseFloat(result.raw[index].distance))
+        : undefined,
+    }));
+  }
+
+  /**
    * 주변 장소 검색
    */
   async searchNearby(nearbyDto: NearbySearchDto): Promise<Place[]> {

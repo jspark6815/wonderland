@@ -34,6 +34,10 @@ export enum PlaceSource {
 @Index(['latitude', 'longitude'])
 @Index(['category'])
 @Index(['source'])
+@Index(['rating']) // 평점 필터 최적화
+@Index(['viewCount']) // 인기순 정렬 최적화
+@Index(['createdAt']) // 최신순 정렬 최적화
+@Index(['name']) // 이름 검색 최적화
 export class Place {
   @ApiProperty({ description: '장소 ID', example: 'uuid' })
   @PrimaryGeneratedColumn('uuid')
@@ -235,4 +239,28 @@ export class Place {
   @ApiProperty({ description: '수정일시' })
   @UpdateDateColumn()
   updatedAt: Date;
+
+  // ============ 고급 데이터 관리 ============
+
+  @ApiPropertyOptional({ description: '삭제일시 (Soft Delete)' })
+  @Column({ nullable: true })
+  @Index()
+  deletedAt?: Date;
+
+  @ApiPropertyOptional({ description: '버전 (Optimistic Locking)' })
+  @Column({ default: 1 })
+  version: number;
+
+  /**
+   * Full-text Search용 tsvector 컬럼
+   * PostgreSQL에서 name, description, tags, keywords를 결합한 검색 인덱스
+   * 마이그레이션에서 트리거로 자동 업데이트
+   */
+  @Column({
+    type: 'tsvector',
+    nullable: true,
+    select: false, // 일반 조회 시 제외
+  })
+  @Index('idx_places_search_vector', { synchronize: false }) // GIN 인덱스는 마이그레이션에서 생성
+  searchVector?: string;
 }
