@@ -168,9 +168,8 @@ export class AuthService {
       throw new UnauthorizedException('인증 정보가 없습니다.');
     }
 
-    // refreshToken 제거 (NULL로 저장)
-    // - 엔티티 타입이 string | undefined 인 관계로 TypeORM의 함수 형태를 사용해 NULL 설정
-    await this.userRepository.update({ id: userId }, { refreshToken: () => 'NULL' });
+    // refreshToken 제거 (DB NULL로 설정)
+    await this.userRepository.update({ id: userId }, { refreshToken: null as unknown as string });
     this.logger.log(`User logged out: ${userId}`);
   }
 

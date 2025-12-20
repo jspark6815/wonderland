@@ -290,7 +290,7 @@ ${dto.reviews.map((r, i) => `${i + 1}. ${r}`).join('\n')}
     } catch (error: unknown) {
       const err = error as Error;
       this.logger.warn(`Query interpretation failed: ${err.message}`);
-      return this.fallbackInterpretation(dto.query);
+      return await this.fallbackInterpretation(dto.query);
     }
   }
 
@@ -363,7 +363,7 @@ ${placesInfo}
     return `${location}${atmosphere}${category} 정보를 찾아드릴게요! 잠시만 기다려주세요. 🔍`;
   }
 
-  private fallbackInterpretation(query: string): InterpretedQuery {
+  private async fallbackInterpretation(query: string): Promise<InterpretedQuery> {
     // LLM 실패 시에도 즉시 검색 가능한 검색어로 보정
     const safeQuery = this.sanitizeSearchQuery(query, query, 'SEARCH_IMMEDIATELY');
     const minRating = this.detectMinRating(query);
@@ -385,14 +385,15 @@ ${placesInfo}
       places: [],
     };
 
-    // 바로 실제 검색 시도 (네이버 API 포함)
-    this.placesService.searchPlaces({
-      query: safeQuery,
-      limit: 5,
-      useExternal: true,
-      minRating,
-    })
-    .then((places) => {
+    // 바로 실제 검색 시도 (네이버 API 포함) - await로 결과 대기
+    try {
+      const places = await this.placesService.searchPlaces({
+        query: safeQuery,
+        limit: 5,
+        useExternal: true,
+        minRating,
+      });
+      
       result.places = places;
       if (places.length > 0) {
         result.response = this.generateSearchResultResponse('SEARCH_IMMEDIATELY', safeQuery, places.length);
@@ -401,10 +402,9 @@ ${placesInfo}
         result.suggestedQueries = this.generateAlternativeQueries(safeQuery);
         result.intent = 'NEED_MORE_INFO';
       }
-    })
-    .catch((err) => {
+    } catch (err) {
       this.logger.warn(`Fallback search failed: ${err}`);
-    });
+    }
 
     return result;
   }

@@ -137,6 +137,7 @@ export class AiController {
         radius: dto.radius || 5000,
         limit: dto.limit || 20,
         useExternal: true,
+        minRating: interpretation.minRating, // AI가 감지한 최소 평점 전달
       });
       
       // DB 결과와 외부 결과 병합 (중복 제거)

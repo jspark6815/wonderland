@@ -11,7 +11,7 @@ export class FeedbackService {
   private readonly logger = new Logger(FeedbackService.name);
   
   // 피드백 요청 가능 시간 (검색 후 5분)
-  private readonly FEEDBACK_DELAY_MINUTES = 1;
+  private readonly FEEDBACK_DELAY_MINUTES = 5;
 
   constructor(
     @InjectRepository(VisitFeedback)
@@ -200,7 +200,7 @@ export class FeedbackService {
     // N분 이상 지난 장소 클릭 중 피드백이 없는 것
     const searches = await this.searchHistoryRepository
       .createQueryBuilder('sh')
-      .leftJoin('places', 'p', 'p.id = sh.placeId')
+      .leftJoin('sh.place', 'p') // TypeORM 관계 기반 조인
       .leftJoin('visit_feedbacks', 'vf', 'vf.searchHistoryId = sh.id AND vf.userId = :userId', { userId })
       .where('sh.userId = :userId', { userId })
       .andWhere('sh.createdAt < :time', { time: feedbackAvailableTime })

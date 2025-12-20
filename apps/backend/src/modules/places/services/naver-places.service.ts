@@ -349,7 +349,7 @@ export class NaverPlacesService {
   async searchImages(query: string, display: number = 3): Promise<string[]> {
     try {
       const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/image`, {
+        this.httpService.get(`${this.baseUrl}/image.json`, {
           params: {
             query,
             display,
