@@ -172,16 +172,20 @@ export class AiController {
   async checkHealth() {
     try {
       const modelStatus = await this.aiService.checkModelStatus();
+      const info = this.aiService.getModelInfo();
       return {
         status: modelStatus ? 'ok' : 'warning',
-        model: 'llama3.2:3b',
+        provider: info.provider,
+        model: info.model,
         modelAvailable: modelStatus,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
+      const info = this.aiService.getModelInfo();
       return {
         status: 'error',
-        model: 'llama3.2:3b',
+        provider: info.provider,
+        model: info.model,
         modelAvailable: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString(),

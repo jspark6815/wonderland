@@ -2,7 +2,7 @@
  * AI 쿼리 해석 결과
  */
 export interface InterpretedQuery {
-  intent?: 'SUGGEST_QUERY' | 'REFINE_CONTEXT' | 'NEED_MORE_INFO';
+  intent?: 'SUGGEST_QUERY' | 'REFINE_CONTEXT' | 'NEED_MORE_INFO' | 'SEARCH_IMMEDIATELY' | 'RECOMMEND_THEMES';
   searchQuery: string;
   suggestedQueries?: string[];
   categories: string[];
@@ -14,6 +14,7 @@ export interface InterpretedQuery {
   specialRequests?: string[];
   response: string;
   followUpQuestions?: string[]; // AI가 생성한 맞춤형 후속 질문
+  places?: any[]; // 검색된 장소 데이터
 }
 
 /**

@@ -21,6 +21,7 @@ export interface AISearchResponse {
   atmosphere?: string[];
   situation?: string;
   followUpQuestions?: string[]; // AI가 생성한 맞춤형 후속 질문
+  places?: any[]; // 검색된 장소 데이터 (카드 표시용)
 }
 
 /**
@@ -199,6 +200,7 @@ const fallbackInterpret = (query: string, context?: SearchContext): AISearchResp
       location,
       atmosphere,
       followUpQuestions: generateFollowUpQuestions(categories[0], location, atmosphere),
+      places: [],
     };
   }
 
@@ -262,6 +264,7 @@ const fallbackInterpret = (query: string, context?: SearchContext): AISearchResp
     location,
     atmosphere,
     followUpQuestions: generateFollowUpQuestions(categories[0], location, atmosphere),
+    places: [],
   };
 };
 
@@ -350,6 +353,7 @@ export const aiSearchAPI = async (query: string, context?: SearchContext): Promi
       atmosphere: result.atmosphere,
       situation: result.situation,
       followUpQuestions: result.followUpQuestions || [],
+      places: result.places || [],
     };
   } catch (error) {
     // 개발 환경에서만 로깅

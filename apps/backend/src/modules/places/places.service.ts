@@ -24,7 +24,7 @@ export class PlacesService {
    * 하이브리드 검색: 내부 DB + 외부 API (위치 기반 필터링 지원)
    */
   async searchPlaces(searchDto: SearchPlacesDto): Promise<Place[]> {
-    let { query, category, limit = 20, useExternal = true, lat, lng, radius = 5000 } = searchDto;
+    let { query, category, limit = 20, useExternal = true, lat, lng, radius = 5000, minRating } = searchDto;
 
     // 0. "근처/주변" 키워드 감지 및 처리
     const nearbyResult = this.parseNearbyQuery(query);
@@ -76,7 +76,7 @@ export class PlacesService {
     }
 
     // 3. 내부 DB 검색 (위치 기반 필터링 포함)
-    const internalResults = await this.searchInternal(query, category, limit, lat, lng, radius);
+    const internalResults = await this.searchInternal(query, category, limit, lat, lng, radius, minRating);
     
     // 기존 결과와 병합 (중복 제거)
     const existingIds = new Set(results.map(p => p.id));
@@ -124,7 +124,12 @@ export class PlacesService {
       }
     }
 
-    // 4. 결과 캐싱
+    // 4. 평점 필터 적용 (내부/외부 통합 결과에 대해)
+    if (minRating && minRating > 0) {
+      results = results.filter((p) => typeof p.rating === 'number' ? p.rating >= minRating : true);
+    }
+
+    // 5. 결과 캐싱
     await this.cacheService.set(cacheKey, results, 300); // 5분 캐시
 
     return results;
@@ -139,7 +144,8 @@ export class PlacesService {
     limit: number = 20,
     lat?: number,
     lng?: number,
-    radius?: number
+    radius?: number,
+    minRating?: number,
   ): Promise<Place[]> {
     const qb = this.placeRepository.createQueryBuilder('place');
 
@@ -188,6 +194,11 @@ export class PlacesService {
     // 카테고리 필터
     if (category) {
       qb.andWhere('place.category = :category', { category });
+    }
+
+    // 평점 필터
+    if (minRating && minRating > 0) {
+      qb.andWhere('place.rating >= :minRating', { minRating });
     }
 
     qb.limit(limit);
